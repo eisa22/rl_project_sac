@@ -4,6 +4,11 @@ Dieses Repository enthält eine vollständige Implementierung des **Soft Actor-C
 
 Es unterstützt sowohl **Single-Task Reinforcement Learning (ML1)** als auch **Multi-Task Reinforcement Learning (MT3)** für die Meta-World Umgebungen.
 
+### test Command zum starten: 
+```bash
+python train_metaworld.py --mode single --env reach-v3 --run_name [euer_name]_test_tiny
+```
+
 ---
 
 ## 🚀 Installation
