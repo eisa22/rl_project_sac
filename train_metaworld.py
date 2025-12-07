@@ -18,11 +18,11 @@ MT10_TASKS = [
     "door-open-v3",
     "drawer-open-v3",
     "drawer-close-v3",
-    "door-close-v3",
     "button-press-topdown-v3",
     "peg-insert-side-v3",
-    "window-open-v3",
+    "window-open-v3"
 ]
+
 
 
 # ============================================================
