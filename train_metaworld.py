@@ -5,8 +5,9 @@ import gymnasium as gym
 import metaworld
 import torch
 import wandb
+from tqdm import tqdm
 
-from stable_baselines3 import SAC
+from sac_agent import SACAgent
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
@@ -254,69 +255,154 @@ def main():
     )
 
     os.makedirs("./models_mt10", exist_ok=True)
+    
+    # Create run-specific model directory
+    model_dir = f"./models_mt10/{RUN}"
+    os.makedirs(model_dir, exist_ok=True)
 
     print("=" * 70)
-    print("Meta-World MT10 Training (SAC, Windows safe)")
-    print("SAC Config Parameters:")
-    for k, v in sac_config.items():
-        print(f"  {k}: {v}")
+    print("Meta-World MT10 Training (Custom SAC)")
+    print("Based on: McLean et al. 2025 - Multi-Task RL Enables Parameter Scaling | Grokking Deep RL")
+    print(f"Run: {RUN}")
+    print(f"Model directory: {model_dir}")
+    print(f"Actor: {sac_config['actor_hidden_sizes']}, Critic: {sac_config['critic_hidden_sizes']}")
+    print(f"Buffer: {sac_config['buffer_size'] // 10:,}k per task × 10 tasks")
     print("=" * 70)
 
     # --------------------- Env ---------------------
-    def make_env():
-        return Monitor(MetaWorldMT10Env(seed=SEED, max_episode_steps=MAX_STEPS))
+    base_env = MetaWorldMT10Env(seed=SEED, max_episode_steps=MAX_STEPS)
+    
+    # Get env dimensions
+    obs_dim = base_env.observation_space.shape[0]
+    act_dim = base_env.action_space.shape[0]
+    act_limit = float(base_env.action_space.high[0])
+    num_tasks = base_env.num_tasks
 
-    env = DummyVecEnv([make_env])
-    eval_env = DummyVecEnv([make_env])
-    sac_config["env"] = env  # jetzt die Umgebung setzen
-
-    # --------------------- SAC Model ---------------------
-    model = SAC(
-        policy=sac_config["policy"],
-        env=sac_config["env"],
-        learning_rate=sac_config["learning_rate"],
-        buffer_size=sac_config["buffer_size"],
-        learning_starts=sac_config["learning_starts"],
-        batch_size=sac_config["batch_size"],
-        tau=sac_config["tau"],
+    # --------------------- SAC Agent ---------------------
+    agent = SACAgent(
+        obs_dim=obs_dim,
+        act_dim=act_dim,
+        act_limit=act_limit,
+        num_tasks=num_tasks,
         gamma=sac_config["gamma"],
-        train_freq=sac_config["train_freq"],
-        gradient_steps=sac_config["gradient_steps"],
-        ent_coef=sac_config["ent_coef"],
-        target_entropy=sac_config["target_entropy"],
-        verbose=sac_config["verbose"],
-        device=sac_config["device"],
-        seed=sac_config["seed"],
-        policy_kwargs={
-            "net_arch": sac_config["actor_hidden_sizes"]
-        }
+        tau=sac_config["tau"],
+        lr=sac_config["learning_rate"],
+        hidden_actor=tuple(sac_config["actor_hidden_sizes"]),
+        hidden_critic=tuple(sac_config["critic_hidden_sizes"]),
+        buffer_size_per_task=sac_config["buffer_size"] // num_tasks,
+        log_std_min=-20,
     )
-
-    # --------------------- Callbacks ---------------------
-    checkpoint = CheckpointCallback(
-        save_freq=100_000,
-        save_path="./models_mt10/",
-        name_prefix="sac_mt10",
-        verbose=1
-    )
-
-    wandb_cb = WandbCallback(log_freq=1000)
-
+    
+    print(f"✓ SAC Agent initialized with {num_tasks} per-task buffers")
+    
+    # --------------------- Training Loop ---------------------
     print("\n🚀 Starting MT10 Training ...\n")
-
-    model.learn(
-        total_timesteps=TOTAL_STEPS,
-        callback=[checkpoint, wandb_cb],
-        progress_bar=True,
-    )
-
-    final_path = "./models_mt10/sac_mt10_final"
-    print("Saving final model to:", final_path)
-    model.save(final_path)
+    
+    obs, info = base_env.reset()
+    episode_reward = 0
+    episode_length = 0
+    episode_count = 0
+    
+    # Per-task tracking
+    from collections import defaultdict
+    task_rewards = defaultdict(list)
+    task_successes = defaultdict(list)
+    task_lengths = defaultdict(list)
+    
+    with tqdm(total=TOTAL_STEPS, desc="Training", unit="step") as pbar:
+        for step in range(TOTAL_STEPS):
+            # Select action
+            if step < sac_config["learning_starts"]:
+                action = base_env.action_space.sample()
+            else:
+                action = agent.act(obs, deterministic=False)
+            
+            # Environment step
+            next_obs, reward, terminated, truncated, info = base_env.step(action)
+            done = terminated or truncated
+            task_id = info["task_id"]
+            task_name = info["task_name"]
+            
+            # Store transition
+            agent.add_experience(obs, action, reward, next_obs, done, task_id)
+            
+            obs = next_obs
+            episode_reward += reward
+            episode_length += 1
+            
+            # Train agent
+            if step >= sac_config["learning_starts"] and step % sac_config["train_freq"] == 0:
+                agent.update(batch_size=sac_config["batch_size"])
+            
+            # Episode end
+            if done:
+                episode_count += 1
+                success = int(info.get("success", False))
+                
+                # Track per-task metrics
+                task_rewards[task_name].append(episode_reward)
+                task_successes[task_name].append(success)
+                task_lengths[task_name].append(episode_length)
+                
+                # Log overall metrics
+                wandb.log({
+                    "train/episode_reward": episode_reward,
+                    "train/episode_length": episode_length,
+                    "train/success": success,
+                    "global_step": step,
+                })
+                
+                # Log per-task metrics (every 10 episodes per task)
+                if len(task_rewards[task_name]) % 10 == 0:
+                    safe_name = task_name.replace("-", "_")
+                    wandb.log({
+                        f"train/task/{safe_name}/reward_mean": np.mean(task_rewards[task_name][-10:]),
+                        f"train/task/{safe_name}/reward_std": np.std(task_rewards[task_name][-10:]),
+                        f"train/task/{safe_name}/success_rate": np.mean(task_successes[task_name][-10:]),
+                        f"train/task/{safe_name}/length_mean": np.mean(task_lengths[task_name][-10:]),
+                    })
+                
+                # Update progress bar
+                pbar.set_postfix({
+                    'ep': episode_count,
+                    'task': task_name.split('-')[0][:6],
+                    'rew': f'{episode_reward:.1f}',
+                    'succ': success
+                })
+                
+                # Reset
+                obs, info = base_env.reset()
+                episode_reward = 0
+                episode_length = 0
+            
+            pbar.update(1)
+            
+            # Save checkpoint
+            if step % 100_000 == 0 and step > 0:
+                save_path = f"{model_dir}/checkpoint_{step}.pt"
+                torch.save({
+                    'actor': agent.actor.state_dict(),
+                    'q1': agent.q1.state_dict(),
+                    'q2': agent.q2.state_dict(),
+                    'step': step,
+                }, save_path)
+                pbar.write(f"💾 Checkpoint saved: {save_path}")
+    
+    # --------------------- Final Save ---------------------
+    final_path = f"{model_dir}/final_model.pt"
+    print(f"\n💾 Saving final model to: {final_path}")
+    torch.save({
+        'actor': agent.actor.state_dict(),
+        'q1': agent.q1.state_dict(),
+        'q2': agent.q2.state_dict(),
+        'q1_target': agent.q1_target.state_dict(),
+        'q2_target': agent.q2_target.state_dict(),
+        'log_alpha': agent.log_alpha if agent.log_alpha is not None else None,
+        'step': TOTAL_STEPS,
+    }, final_path)
 
     wandb.finish()
-    env.close()
-    eval_env.close()
+    base_env.close()
 
     print("\n🎉 Training finished successfully!")
 
