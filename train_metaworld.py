@@ -54,7 +54,8 @@ class MetaWorldMT10Env(gym.Env):
         self._step = 0
 
     def _sample_task(self):
-        self._current_task = self._rng.choice(self.tasks)
+        import random
+        self._current_task = random.choice(self.tasks)
         env_name = self._current_task.env_name
         self._tid = self.task_id_map[env_name]
         self._env = self.task_envs[env_name]
@@ -135,31 +136,44 @@ def main():
     SEED = args.seed
     MAX_STEPS = 150
 
-    # --------------------- W&B ---------------------
+    # --------------------- SAC Config & W&B Logging ---------------------
+    sac_config = {
+        "policy": "MlpPolicy",
+        "env": None,  # wird später gesetzt
+        "learning_rate": 3e-4,
+        "buffer_size": 2_000_000,
+        "learning_starts": 10_000,
+        "batch_size": 512,
+        "tau": 0.005,
+        "gamma": 0.99,
+        "train_freq": 1,
+        "gradient_steps": -1,
+        "ent_coef": "auto",
+        "target_entropy": "auto",
+        "verbose": 1,
+        "device": "cuda" if torch.cuda.is_available() else "cpu",
+        "seed": SEED,
+        "total_steps": TOTAL_STEPS,
+        "max_episode_steps": MAX_STEPS,
+        "run_name": RUN,
+        # Netzwerkgrößen explizit loggen und verwenden
+        "actor_hidden_sizes": [256, 256],
+        "critic_hidden_sizes": [1024, 1024, 1024],
+    }
+
     wandb.init(
         project="Robot_learning_2025",
         name=RUN,
-        config={
-            "algo": "SAC",
-            "taskset": "MT10",
-            "total_steps": TOTAL_STEPS,
-            "seed": SEED,
-            "max_episode_steps": MAX_STEPS,
-            "batch_size": 512,
-            "gamma": 0.99,
-            "lr": 3e-4
-        }
+        config=sac_config
     )
 
     os.makedirs("./models_mt10", exist_ok=True)
 
     print("=" * 70)
     print("Meta-World MT10 Training (SAC, Windows safe)")
-    print(f"Run Name        : {RUN}")
-    print(f"Total Steps     : {TOTAL_STEPS}")
-    print(f"Seed            : {SEED}")
-    print(f"CUDA Available  : {torch.cuda.is_available()}")
-    print("Using Device    :", "cuda" if torch.cuda.is_available() else "cpu")
+    print("SAC Config Parameters:")
+    for k, v in sac_config.items():
+        print(f"  {k}: {v}")
     print("=" * 70)
 
     # --------------------- Env ---------------------
@@ -168,24 +182,28 @@ def main():
 
     env = DummyVecEnv([make_env])
     eval_env = DummyVecEnv([make_env])
+    sac_config["env"] = env  # jetzt die Umgebung setzen
 
     # --------------------- SAC Model ---------------------
     model = SAC(
-        policy="MlpPolicy",
-        env=env,
-        learning_rate=3e-4,
-        buffer_size=2_000_000,
-        learning_starts=10_000,
-        batch_size=512,
-        tau=0.005,
-        gamma=0.99,
-        train_freq=1,
-        gradient_steps=-1,
-        ent_coef="auto",
-        target_entropy="auto",
-        verbose=1,
-        device="cuda" if torch.cuda.is_available() else "cpu",
-        seed=SEED,
+        policy=sac_config["policy"],
+        env=sac_config["env"],
+        learning_rate=sac_config["learning_rate"],
+        buffer_size=sac_config["buffer_size"],
+        learning_starts=sac_config["learning_starts"],
+        batch_size=sac_config["batch_size"],
+        tau=sac_config["tau"],
+        gamma=sac_config["gamma"],
+        train_freq=sac_config["train_freq"],
+        gradient_steps=sac_config["gradient_steps"],
+        ent_coef=sac_config["ent_coef"],
+        target_entropy=sac_config["target_entropy"],
+        verbose=sac_config["verbose"],
+        device=sac_config["device"],
+        seed=sac_config["seed"],
+        policy_kwargs={
+            "net_arch": sac_config["actor_hidden_sizes"]
+        }
     )
 
     # --------------------- Callbacks ---------------------

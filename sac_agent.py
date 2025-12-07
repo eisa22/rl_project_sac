@@ -56,7 +56,9 @@ def mlp(sizes, activation, output_activation=nn.Identity):
 
 class GaussianPolicy(nn.Module):
     def __init__(self, obs_dim, act_dim, act_limit,
-                 hidden_sizes=(256, 256), log_std_min=-20, log_std_max=2):
+                 hidden_sizes=None, log_std_min=-20, log_std_max=2):
+        if hidden_sizes is None:
+            hidden_sizes = (256, 256)
         super().__init__()
         self.net = mlp([obs_dim] + list(hidden_sizes), nn.ReLU, nn.ReLU)
         self.mu_layer = nn.Linear(hidden_sizes[-1], act_dim)
@@ -99,8 +101,10 @@ class GaussianPolicy(nn.Module):
 
 
 class QNetwork(nn.Module):
-    def __init__(self, obs_dim, act_dim, hidden_sizes=(1024, 1024, 1024)):
+    def __init__(self, obs_dim, act_dim, hidden_sizes=None):
         super().__init__()
+        if hidden_sizes is None:
+            hidden_sizes = (1024, 1024, 1024)
         self.q = mlp([obs_dim + act_dim] + list(hidden_sizes) + [1], nn.ReLU, nn.Identity)
 
     def forward(self, obs, act):
@@ -121,11 +125,15 @@ class SACAgent:
         tau=0.005,
         alpha=0.2,
         lr=3e-4,
-        hidden_actor=(256, 256),
-        hidden_critic=(1024, 1024, 1024),
+        hidden_actor=None,
+        hidden_critic=None,
         target_entropy=None,
         automatic_entropy_tuning=True,
     ):
+        if hidden_actor is None:
+            hidden_actor = (256, 256)
+        if hidden_critic is None:
+            hidden_critic = (1024, 1024, 1024)
         self.gamma = gamma
         self.tau = tau
         self.alpha = alpha
