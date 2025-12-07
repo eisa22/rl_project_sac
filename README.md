@@ -118,6 +118,7 @@ Perfekt, um schnell zu testen, wie gut ein Modell gelernt hat.
     Run-Name: Wird über das Argument --run_name gesetzt. Bitte nutzen Sie Ihren eigenen, eindeutigen Run-Namen!
 
         Beispiele: --run_name samuel_bigcritic_test, --run_name lukas_actor_small
+        beispiel mt10: python train_metaworld.py --run_name samuel_mt10_run
 
 ### 3. Geloggte Metriken
 Kategorie	Metriken
