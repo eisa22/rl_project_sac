@@ -1,206 +1,220 @@
+import os
 import argparse
-import random
 import numpy as np
+import gymnasium as gym
 import metaworld
-import wandb
 import torch
+import wandb
 
-from sac_agent import SACAgent, ReplayBuffer, device
-
-
-# ============================================================
-# MT10 Task Setup laut Paper
-# ============================================================
-MT10_TASKS = [
-    "reach-v3",
-    "push-v3",
-    "pick-place-v3",
-    "door-open-v3",
-    "drawer-open-v3",
-    "drawer-close-v3",
-    "button-press-topdown-v3",
-    "peg-insert-side-v3",
-    "window-open-v3"
-]
-
+from stable_baselines3 import SAC
+from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 
 
 # ============================================================
-# Environment Helpers
+#   MT10 Env Wrapper (episodic)
 # ============================================================
-def make_mt1_env(task_name):
-    """Creates single-task MetaWorld MT1 environment for evaluation."""
-    ml1 = metaworld.ML1(task_name)
-    env_cls = ml1.train_classes[task_name]
-    env = env_cls()
-    task = random.choice(ml1.train_tasks)
-    env.set_task(task)
-    return env
 
+class MetaWorldMT10Env(gym.Env):
+    metadata = {"render_modes": ["human", "rgb_array"]}
 
-def load_mt10_envs():
-    """Creates all MT10 training environments."""
-    mt10 = metaworld.MT10()
-    envs = {}
-    tasks = []
+    def __init__(self, seed=0, max_episode_steps=150):
+        super().__init__()
+        self.mt10 = metaworld.MT10()
+        self.task_envs = {name: cls() for name, cls in self.mt10.train_classes.items()}
+        self.tasks = list(self.mt10.train_tasks)
+        self.task_names = list(self.task_envs.keys())
+        self.num_tasks = len(self.task_names)
+        self.task_id_map = {name: i for i, name in enumerate(self.task_names)}
 
-    for name in MT10_TASKS:
-        envs[name] = mt10.train_classes[name]()
-        tasks.extend([t for t in mt10.train_tasks if t.env_name == name])
+        # Reference space
+        ref_env = self.task_envs[self.task_names[0]]
+        base_obs_space = ref_env.observation_space
 
-    return envs, tasks
+        # Action space
+        self.action_space = ref_env.action_space
 
+        # Obs + one-hot task
+        low = np.concatenate([
+            base_obs_space.low.astype(np.float32),
+            np.zeros(self.num_tasks, dtype=np.float32)
+        ])
+        high = np.concatenate([
+            base_obs_space.high.astype(np.float32),
+            np.ones(self.num_tasks, dtype=np.float32)
+        ])
+        self.observation_space = gym.spaces.Box(low=low, high=high, dtype=np.float32)
 
-# ============================================================
-# Evaluation of a single task
-# ============================================================
-def evaluate_single(task_name, agent, episodes=5):
-    env = make_mt1_env(task_name)
-    returns = []
-    successes = 0
+        self.max_episode_steps = max_episode_steps
+        self._rng = np.random.default_rng(seed)
+        self._env = None
+        self._current_task = None
+        self._tid = None
+        self._step = 0
 
-    for _ in range(episodes):
-        obs, _ = env.reset()
-        done = False
-        truncated = False
-        ep_ret = 0
-        info = {}
+    def _sample_task(self):
+        self._current_task = self._rng.choice(self.tasks)
+        env_name = self._current_task.env_name
+        self._tid = self.task_id_map[env_name]
+        self._env = self.task_envs[env_name]
+        self._env.set_task(self._current_task)
 
-        for _ in range(150):
-            action = agent.act(obs, deterministic=True)
-            obs, reward, done, truncated, info = env.step(action)
-            ep_ret += reward
-            if done or truncated:
-                break
+    def _augment_obs(self, obs):
+        onehot = np.zeros(self.num_tasks, dtype=np.float32)
+        onehot[self._tid] = 1.0
+        return np.concatenate([obs.astype(np.float32), onehot])
 
-        returns.append(ep_ret)
+    def reset(self, seed=None, options=None):
+        if seed is not None:
+            self._rng = np.random.default_rng(seed)
+        self._sample_task()
+        self._step = 0
 
-        if "success" in info and info["success"]:
-            successes += 1
+        obs, info = self._env.reset()
+        obs = self._augment_obs(obs)
 
-    return np.mean(returns), successes / episodes
+        info = {
+            "task_name": self._current_task.env_name,
+            "task_id": int(self._tid)
+        }
+        return obs, info
 
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self._env.step(action)
+        self._step += 1
 
-# ============================================================
-# MT10 Training Loop (Paper Version)
-# ============================================================
-def train_mt10(total_steps=2_000_000, start_steps=3000, batch_size=512):
-    print("\n🚀 Starting MT10 Training (Paper Setup)")
+        if self._step >= self.max_episode_steps:
+            truncated = True
 
-    envs, tasks = load_mt10_envs()
+        obs = self._augment_obs(obs)
 
-    # Observation / Action Dimensions
-    ref_env = envs[MT10_TASKS[0]]
-    obs_dim = ref_env.observation_space.shape[0]
-    act_dim = ref_env.action_space.shape[0]
-    act_limit = float(ref_env.action_space.high[0])
+        info = {
+            "task_name": self._current_task.env_name,
+            "task_id": int(self._tid)
+        }
+        return obs, reward, terminated, truncated, info
 
-    num_tasks = len(MT10_TASKS)
-    task_id_map = {name: i for i, name in enumerate(MT10_TASKS)}
+    def render(self):
+        return self._env.render()
 
-    # Replay Buffer w/ task one-hot appended
-    replay_buffer = ReplayBuffer(obs_dim, act_dim, task_dim=num_tasks, size=int(1e6))
-
-    # SAC Agent w/ large critics per paper
-    agent = SACAgent(
-        obs_dim=obs_dim + num_tasks,
-        act_dim=act_dim,
-        act_limit=act_limit,
-        hidden_actor=(256, 256),              # small actor (paper)
-        hidden_critic=(2048, 2048, 2048),     # scaled critic (paper)
-        gamma=0.99,
-        lr=3e-4,
-        tau=0.005,
-    )
-
-    # Initial Task
-    cur_task = random.choice(tasks)
-    env = envs[cur_task.env_name]
-    env.set_task(cur_task)
-    tid = task_id_map[cur_task.env_name]
-
-    obs_raw, _ = env.reset()
-    obs = np.concatenate([obs_raw, np.eye(num_tasks)[tid]])
-
-    ep_len = 0
-
-    # ============================================================
-    # TRAINING LOOP
-    # ============================================================
-    for t in range(1, total_steps + 1):
-
-        # Early random exploration
-        if t < start_steps:
-            action = ref_env.action_space.sample()
-        else:
-            action = agent.act(obs)
-
-        next_raw, reward, terminated, truncated, info = env.step(action)
-        done = terminated or truncated
-
-        next_obs = np.concatenate([next_raw, np.eye(num_tasks)[tid]])
-
-        replay_buffer.add(obs, action, reward, next_obs, float(done))
-        obs = next_obs
-        ep_len += 1
-
-        # Episode finished → sample new task (MT10 mixing)
-        if done or ep_len >= 150:
-            cur_task = random.choice(tasks)
-            env = envs[cur_task.env_name]
-            env.set_task(cur_task)
-            tid = task_id_map[cur_task.env_name]
-            o_raw, _ = env.reset()
-            obs = np.concatenate([o_raw, np.eye(num_tasks)[tid]])
-            ep_len = 0
-
-        # Update SAC
-        if t >= start_steps:
-            agent.update(replay_buffer, batch_size=batch_size)
-
-        # ------------------------------------------------------------
-        # Periodic Evaluation (every 50k steps)
-        # ------------------------------------------------------------
-        if t % 50_000 == 0:
-            print(f"\n📈 Eval @ step {t}")
-            for task in MT10_TASKS:
-                avg_ret, succ = evaluate_single(task, agent)
-                wandb.log({
-                    f"{task}_avg_return": avg_ret,
-                    f"{task}_success_rate": succ,
-                    "global_step": t
-                })
-                print(f"  {task}: return={avg_ret:.2f}, success={succ*100:.1f}%")
-
-    print("\n🎉 Training Finished!")
-    return agent
+    def close(self):
+        pass
 
 
 # ============================================================
-# Main Entry
+#   W&B Callback
 # ============================================================
+
+class WandbCallback(BaseCallback):
+    def __init__(self, log_freq=1000, verbose=0):
+        super().__init__(verbose)
+        self.log_freq = log_freq
+
+    def _on_step(self):
+        if self.n_calls % self.log_freq == 0:
+            logs = {k: v for k, v in self.model.logger.name_to_value.items()}
+            logs["global_step"] = self.num_timesteps
+            wandb.log(logs)
+        return True
+
+
+# ============================================================
+#   MAIN
+# ============================================================
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_name", type=str, default="mt10_2mio_run")
+    parser.add_argument("--run_name", type=str, default="mt10_run")
+    parser.add_argument("--total_steps", type=int, default=2_000_000)
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
+    RUN = args.run_name
+    TOTAL_STEPS = args.total_steps
+    SEED = args.seed
+    MAX_STEPS = 150
+
+    # --------------------- W&B ---------------------
     wandb.init(
-        project="Robot_learning_2025",       # <--- YOUR PROJECT
-        name=args.run_name,
+        project="Robot_learning_2025",
+        name=RUN,
         config={
-            "tasks": MT10_TASKS,
-            "total_steps": 2_000_000,
+            "algo": "SAC",
+            "taskset": "MT10",
+            "total_steps": TOTAL_STEPS,
+            "seed": SEED,
+            "max_episode_steps": MAX_STEPS,
             "batch_size": 512,
-            "actor": [256, 256],
-            "critic": [2048, 2048, 2048]
+            "gamma": 0.99,
+            "lr": 3e-4
         }
     )
 
-    train_mt10(
-        total_steps=2_000_000,
-        start_steps=3000,
-        batch_size=512
+    os.makedirs("./models_mt10", exist_ok=True)
+
+    print("=" * 70)
+    print("Meta-World MT10 Training (SAC, Windows safe)")
+    print(f"Run Name        : {RUN}")
+    print(f"Total Steps     : {TOTAL_STEPS}")
+    print(f"Seed            : {SEED}")
+    print(f"CUDA Available  : {torch.cuda.is_available()}")
+    print("Using Device    :", "cuda" if torch.cuda.is_available() else "cpu")
+    print("=" * 70)
+
+    # --------------------- Env ---------------------
+    def make_env():
+        return Monitor(MetaWorldMT10Env(seed=SEED, max_episode_steps=MAX_STEPS))
+
+    env = DummyVecEnv([make_env])
+    eval_env = DummyVecEnv([make_env])
+
+    # --------------------- SAC Model ---------------------
+    model = SAC(
+        policy="MlpPolicy",
+        env=env,
+        learning_rate=3e-4,
+        buffer_size=2_000_000,
+        learning_starts=10_000,
+        batch_size=512,
+        tau=0.005,
+        gamma=0.99,
+        train_freq=1,
+        gradient_steps=-1,
+        ent_coef="auto",
+        target_entropy="auto",
+        verbose=1,
+        device="cuda" if torch.cuda.is_available() else "cpu",
+        seed=SEED,
     )
+
+    # --------------------- Callbacks ---------------------
+    checkpoint = CheckpointCallback(
+        save_freq=100_000,
+        save_path="./models_mt10/",
+        name_prefix="sac_mt10",
+        verbose=1
+    )
+
+    wandb_cb = WandbCallback(log_freq=1000)
+
+    print("\n🚀 Starting MT10 Training ...\n")
+
+    model.learn(
+        total_timesteps=TOTAL_STEPS,
+        callback=[checkpoint, wandb_cb],
+        progress_bar=True,
+    )
+
+    final_path = "./models_mt10/sac_mt10_final"
+    print("Saving final model to:", final_path)
+    model.save(final_path)
+
+    wandb.finish()
+    env.close()
+    eval_env.close()
+
+    print("\n🎉 Training finished successfully!")
 
 
 if __name__ == "__main__":
