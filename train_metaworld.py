@@ -19,14 +19,16 @@ from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback,
 class MetaWorldMT10Env(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"]}
 
-    def __init__(self, seed=0, max_episode_steps=150):
+    def __init__(self, seed=0, max_episode_steps=150, render_mode=None, fixed_task_name=None):
         super().__init__()
         self.mt10 = metaworld.MT10()
-        self.task_envs = {name: cls() for name, cls in self.mt10.train_classes.items()}
+        self.task_envs = {name: cls(render_mode=render_mode) for name, cls in self.mt10.train_classes.items()}
         self.tasks = list(self.mt10.train_tasks)
         self.task_names = list(self.task_envs.keys())
         self.num_tasks = len(self.task_names)
         self.task_id_map = {name: i for i, name in enumerate(self.task_names)}
+        self.render_mode = render_mode
+        self.fixed_task_name = fixed_task_name
 
         # Reference space
         ref_env = self.task_envs[self.task_names[0]]
@@ -55,8 +57,13 @@ class MetaWorldMT10Env(gym.Env):
 
     def _sample_task(self):
         import random
-        self._current_task = random.choice(self.tasks)
-        env_name = self._current_task.env_name
+        if self.fixed_task_name and self.fixed_task_name in self.task_envs:
+            env_name = self.fixed_task_name
+            # select the first matching task object for the fixed env name
+            self._current_task = next(t for t in self.tasks if t.env_name == env_name)
+        else:
+            self._current_task = random.choice(self.tasks)
+            env_name = self._current_task.env_name
         self._tid = self.task_id_map[env_name]
         self._env = self.task_envs[env_name]
         self._env.set_task(self._current_task)
@@ -90,9 +97,15 @@ class MetaWorldMT10Env(gym.Env):
 
         obs = self._augment_obs(obs)
 
+        # Preserve success flag from the underlying Meta-World env for logging/eval
+        success = False
+        if isinstance(info, dict):
+            success = bool(info.get("success", False))
+
         info = {
             "task_name": self._current_task.env_name,
-            "task_id": int(self._tid)
+            "task_id": int(self._tid),
+            "success": success
         }
         return obs, reward, terminated, truncated, info
 

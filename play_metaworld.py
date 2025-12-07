@@ -13,74 +13,48 @@ Steps:
 
 import os
 import numpy as np
-import gymnasium as gym
-import metaworld
-from stable_baselines3 import SAC, TD3, DDPG
+from stable_baselines3 import SAC
+
+from train_metaworld import MetaWorldMT10Env
 
 
 # ================================
-# User Configuration
+# User Configuration (MT10)
 # ================================
-TASK_NAME = "reach-v2"      # must match the task used during training
-ALGORITHM = "SAC"           # one of: "SAC", "TD3", "DDPG"
-MODEL_DIR = "./metaworld_models"
+ALGORITHM = "SAC"  # align with training algo
+MODEL_PATH = "./models_mt10/sac_mt10_final.zip"
+TASK_NAME = "reach-v3"  # choose one MT10 task; matches training env_name
 SEED = 42
 EPISODES = 10
-MAX_EPISODE_STEPS = 200     # should match your training setting
-RENDER = True               # set False for headless evaluation
+MAX_EPISODE_STEPS = 150  # match training
+RENDER = True            # set False for headless evaluation
 # ================================
-
-
-def load_model(algo, model_path, env):
-    if algo == "SAC":
-        return SAC.load(model_path, env=env)
-    elif algo == "TD3":
-        return TD3.load(model_path, env=env)
-    elif algo == "DDPG":
-        return DDPG.load(model_path, env=env)
-    else:
-        raise ValueError(f"Unknown algorithm: {algo}")
 
 
 if __name__ == "__main__":
 
     # -------------------------------------------------------
-    # Build Meta-World MT1 environment
+    # Build Meta-World MT10 environment (one-hot task id)
     # -------------------------------------------------------
-    print(f"\nCreating Meta-World MT1 environment for: {TASK_NAME}")
+    print("\nCreating Meta-World MT10 environment (random task per episode)")
 
-    env = gym.make(
-        "Meta-World/MT1",
-        env_name=TASK_NAME,
+    env = MetaWorldMT10Env(
         seed=SEED,
-        render_mode="human" if RENDER else None,
         max_episode_steps=MAX_EPISODE_STEPS,
-        terminate_on_success=False,
+        render_mode="human" if RENDER else None,
+        fixed_task_name=TASK_NAME,
     )
 
     # -------------------------------------------------------
     # Locate trained model
     # -------------------------------------------------------
-    preferred_dir = os.path.join(MODEL_DIR, f"best_{TASK_NAME}")
-    preferred_model = os.path.join(preferred_dir, "best_model.zip")
-
-    fallback_model = os.path.join(
-        MODEL_DIR,
-        f"{ALGORITHM.lower()}_{TASK_NAME}_final.zip"
-    )
-
-    if os.path.exists(preferred_model):
-        model_path = preferred_model
-    elif os.path.exists(fallback_model):
-        model_path = fallback_model
-    else:
+    if not os.path.exists(MODEL_PATH):
         print("\n❌ No trained model found!")
-        print(f"Expected: {preferred_model}")
-        print(f"Or:      {fallback_model}")
+        print(f"Expected: {MODEL_PATH}")
         exit(1)
 
-    print(f"\nLoading model from: {model_path}")
-    model = load_model(ALGORITHM, model_path, env)
+    print(f"\nLoading model from: {MODEL_PATH}")
+    model = SAC.load(MODEL_PATH, env=env)
 
 
     # -------------------------------------------------------
@@ -100,8 +74,10 @@ if __name__ == "__main__":
         ep_reward = 0
         ep_success = False
         steps = 0
+        task_name = info.get("task_name", "unknown") if isinstance(info, dict) else "unknown"
 
         print(f"\n--- Episode {ep+1}/{EPISODES} ---")
+        print(f"Task: {task_name}")
 
         while not (done or truncated):
             action, _ = model.predict(obs, deterministic=True)
@@ -111,7 +87,7 @@ if __name__ == "__main__":
             steps += 1
 
             # Meta-World provides success flag
-            if "success" in info and info["success"]:
+            if isinstance(info, dict) and info.get("success", False):
                 ep_success = True
 
             if RENDER:
@@ -127,16 +103,16 @@ if __name__ == "__main__":
     # -------------------------------------------------------
     # Summary
     # -------------------------------------------------------
-    print("\n===========================================================")
+    print("===========================================================")
     print("EVALUATION SUMMARY")
     print("===========================================================")
-    print(f"Task: {TASK_NAME}")
     print(f"Episodes: {EPISODES}")
     print(f"Average reward: {np.mean(total_rewards):.2f}")
     print(f"Std reward: {np.std(total_rewards):.2f}")
     print(f"Min reward: {np.min(total_rewards):.2f}")
     print(f"Max reward: {np.max(total_rewards):.2f}")
     print(f"Success rate: {successes}/{EPISODES} ({100 * successes/EPISODES:.1f}%)")
+
     print("===========================================================\n")
 
     env.close()
