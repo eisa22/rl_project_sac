@@ -113,6 +113,8 @@ class WandbCallback(BaseCallback):
         self.log_freq = log_freq
         self.episode_rewards = []
         self.episode_successes = []
+        self.task_episode_rewards = {}  # {task_name: [rewards]}
+        self.task_episode_successes = {}  # {task_name: [successes]}
 
     def _on_step(self):
         # Track episode rewards and successes from the environment's info
@@ -139,15 +141,27 @@ class WandbCallback(BaseCallback):
                     # Get success status
                     ep_success = info.get("success", False) if isinstance(info, dict) else False
                     
+                    # Get task name
+                    task_name = info.get("task_name", "unknown") if isinstance(info, dict) else "unknown"
+                    
+                    # Global tracking
                     self.episode_rewards.append(ep_reward)
                     self.episode_successes.append(int(ep_success))
+                    
+                    # Task-specific tracking
+                    if task_name not in self.task_episode_rewards:
+                        self.task_episode_rewards[task_name] = []
+                        self.task_episode_successes[task_name] = []
+                    
+                    self.task_episode_rewards[task_name].append(ep_reward)
+                    self.task_episode_successes[task_name].append(int(ep_success))
         
         # Log metrics every log_freq steps
         if self.n_calls % self.log_freq == 0:
             logs = {k: v for k, v in self.model.logger.name_to_value.items()}
             logs["global_step"] = self.num_timesteps
             
-            # Log episode returns if available
+            # Log overall episode returns
             if self.episode_rewards:
                 logs["train/episode_reward_mean"] = np.mean(self.episode_rewards)
                 logs["train/episode_reward_std"] = np.std(self.episode_rewards)
@@ -155,10 +169,25 @@ class WandbCallback(BaseCallback):
                 logs["train/episode_reward_min"] = np.min(self.episode_rewards)
                 self.episode_rewards = []
             
-            # Log success rate if available
+            # Log overall success rate
             if self.episode_successes:
                 logs["train/success_rate"] = np.mean(self.episode_successes)
                 self.episode_successes = []
+            
+            # Log task-specific metrics
+            for task_name in sorted(self.task_episode_rewards.keys()):
+                if self.task_episode_rewards[task_name]:
+                    task_rewards = self.task_episode_rewards[task_name]
+                    task_successes = self.task_episode_successes[task_name]
+                    
+                    safe_task_name = task_name.replace("-", "_")
+                    logs[f"train/task/{safe_task_name}/episode_reward_mean"] = np.mean(task_rewards)
+                    logs[f"train/task/{safe_task_name}/episode_reward_std"] = np.std(task_rewards)
+                    logs[f"train/task/{safe_task_name}/success_rate"] = np.mean(task_successes)
+                    
+                    # Clear task-specific buffers
+                    self.task_episode_rewards[task_name] = []
+                    self.task_episode_successes[task_name] = []
             
             wandb.log(logs)
         return True
