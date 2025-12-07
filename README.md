@@ -76,8 +76,8 @@ wandb login
 Das Haupt-Trainingsskript.  
 Es ermöglicht:
 
-- **Single-Task Training (ML1)** z. B. `reach-v2`, `push-v2`
-- **Multi-Task Training (MT3)** mit 3 Tasks gleichzeitig
+- **Single-Task Training (ML1)** z. B. `reach-v3`, `push-v3`
+- **Multi-Task Training (MT10)** mit 10 Tasks gleichzeitig
 - automatisches Logging in **Weights & Biases**
 - Ausführen von SAC-Updates und regelmäßiger Evaluation
 
@@ -113,7 +113,7 @@ Perfekt, um schnell zu testen, wie gut ein Modell gelernt hat.
 
 ### 2. Konfiguration
 
-    Projektname: metaworld-sac-mtrl
+    Projektname: Robot_learning_2025
 
     Run-Name: Wird über das Argument --run_name gesetzt. Bitte nutzen Sie Ihren eigenen, eindeutigen Run-Namen!
 
