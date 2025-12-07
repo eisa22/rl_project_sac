@@ -9,7 +9,7 @@ import wandb
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
 
 
 # ============================================================
@@ -111,11 +111,55 @@ class WandbCallback(BaseCallback):
     def __init__(self, log_freq=1000, verbose=0):
         super().__init__(verbose)
         self.log_freq = log_freq
+        self.episode_rewards = []
+        self.episode_successes = []
 
     def _on_step(self):
+        # Track episode rewards and successes from the environment's info
+        # In DummyVecEnv, we get dones and infos for all environments
+        if hasattr(self.model.env, 'buf_dones') and hasattr(self.model.env, 'buf_infos'):
+            dones = self.model.env.buf_dones
+            infos = self.model.env.buf_infos
+            
+            for i in range(len(dones)):
+                if dones[i]:
+                    # Episode finished for environment i
+                    info = infos[i] if infos and i < len(infos) else {}
+                    
+                    # Get episode reward from Monitor wrapper
+                    if hasattr(self.model.env, 'envs') and i < len(self.model.env.envs):
+                        monitor_env = self.model.env.envs[i]
+                        if hasattr(monitor_env, 'episode_returns'):
+                            ep_reward = monitor_env.episode_returns[-1] if monitor_env.episode_returns else 0.0
+                        else:
+                            ep_reward = 0.0
+                    else:
+                        ep_reward = 0.0
+                    
+                    # Get success status
+                    ep_success = info.get("success", False) if isinstance(info, dict) else False
+                    
+                    self.episode_rewards.append(ep_reward)
+                    self.episode_successes.append(int(ep_success))
+        
+        # Log metrics every log_freq steps
         if self.n_calls % self.log_freq == 0:
             logs = {k: v for k, v in self.model.logger.name_to_value.items()}
             logs["global_step"] = self.num_timesteps
+            
+            # Log episode returns if available
+            if self.episode_rewards:
+                logs["train/episode_reward_mean"] = np.mean(self.episode_rewards)
+                logs["train/episode_reward_std"] = np.std(self.episode_rewards)
+                logs["train/episode_reward_max"] = np.max(self.episode_rewards)
+                logs["train/episode_reward_min"] = np.min(self.episode_rewards)
+                self.episode_rewards = []
+            
+            # Log success rate if available
+            if self.episode_successes:
+                logs["train/success_rate"] = np.mean(self.episode_successes)
+                self.episode_successes = []
+            
             wandb.log(logs)
         return True
 
