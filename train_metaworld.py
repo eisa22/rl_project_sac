@@ -216,6 +216,7 @@ def main():
     parser.add_argument("--run_name", type=str, default="mt10_run")
     parser.add_argument("--total_steps", type=int, default=2_000_000)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--resume_from", type=str, default=None, help="Path to checkpoint to resume from")
     args = parser.parse_args()
 
     RUN = args.run_name
@@ -301,6 +302,22 @@ def main():
     
     print(f"✓ SAC Agent initialized with {num_tasks} per-task buffers")
     
+    # Resume from checkpoint if specified
+    start_step = 0
+    if args.resume_from:
+        print(f"\n📂 Resuming from checkpoint: {args.resume_from}")
+        checkpoint = torch.load(args.resume_from, map_location=sac_config["device"])
+        agent.actor.load_state_dict(checkpoint['actor'])
+        agent.q1.load_state_dict(checkpoint['q1'])
+        agent.q2.load_state_dict(checkpoint['q2'])
+        if 'q1_target' in checkpoint:
+            agent.q1_target.load_state_dict(checkpoint['q1_target'])
+            agent.q2_target.load_state_dict(checkpoint['q2_target'])
+        if 'log_alpha' in checkpoint and checkpoint['log_alpha'] is not None:
+            agent.log_alpha = checkpoint['log_alpha']
+        start_step = checkpoint.get('step', 0)
+        print(f"✓ Resumed from step {start_step:,}\n")
+    
     # --------------------- Training Loop ---------------------
     print("\n🚀 Starting MT10 Training ...\n")
     
@@ -315,8 +332,8 @@ def main():
     task_successes = defaultdict(list)
     task_lengths = defaultdict(list)
     
-    with tqdm(total=TOTAL_STEPS, desc="Training", unit="step") as pbar:
-        for step in range(TOTAL_STEPS):
+    with tqdm(total=TOTAL_STEPS, initial=start_step, desc="Training", unit="step") as pbar:
+        for step in range(start_step, TOTAL_STEPS):
             # Select action
             if step < sac_config["learning_starts"]:
                 action = base_env.action_space.sample()
@@ -383,13 +400,16 @@ def main():
             
             pbar.update(1)
             
-            # Save checkpoint
-            if step % 100_000 == 0 and step > 0:
+            # Save checkpoint every 200k steps (plus targets for resumption)
+            if step % 200_000 == 0 and step > 0:
                 save_path = f"{model_dir}/checkpoint_{step}.pt"
                 torch.save({
                     'actor': agent.actor.state_dict(),
                     'q1': agent.q1.state_dict(),
                     'q2': agent.q2.state_dict(),
+                    'q1_target': agent.q1_target.state_dict(),
+                    'q2_target': agent.q2_target.state_dict(),
+                    'log_alpha': agent.log_alpha if agent.log_alpha is not None else None,
                     'step': step,
                 }, save_path)
                 pbar.write(f"💾 Checkpoint saved: {save_path}")
