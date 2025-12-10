@@ -49,6 +49,11 @@ runs/
 checkpoints/
 *.zip
 
+# Large container & model files (too large for git)
+*.sif
+models_cluster/
+sac_metaworld.sif
+
 # Environment variables
 .env
 .env.local

@@ -1,0 +1,29 @@
+# Core ML/RL Framework (upgraded for compatibility)
+torch>=2.3.0
+torchvision>=0.18.0
+torchaudio>=2.3.0
+numpy>=1.24.0,<2.0.0
+
+# Meta-World and Gym (compatible versions)
+metaworld
+gymnasium>=1.1.0
+
+# MuJoCo Physics Engine
+mujoco>=3.0.0
+
+# Stable Baselines (requires torch >=2.3 and gymnasium >=1.1)
+stable-baselines3>=2.7.0
+
+# Logging and Monitoring
+wandb>=0.16.0
+tensorboard>=2.15.0
+
+# Utilities
+tqdm>=4.66.0
+matplotlib>=3.8.0
+scipy>=1.11.0
+pillow>=10.0.0
+
+# Additional dependencies
+imageio>=2.33.0
+glfw>=2.5.0
