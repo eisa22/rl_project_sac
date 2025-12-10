@@ -223,14 +223,18 @@ def main():
     SEED = args.seed
     MAX_STEPS = 150
 
-    # --------------------- SAC Config & W&B Logging ---------------------
+    # --------------------- SAC Config (Paper: McLean et al. 2025) ---------------------
+    # Allow parallel environments for GPU throughput (doesn't affect hyperparameters)
+    num_parallel_envs = int(os.environ.get("NUM_PARALLEL_ENVS", "1"))
+    
+    # PAPER HYPERPARAMETERS (FIXED)
     sac_config = {
         "policy": "MlpPolicy",
-        "env": None,  # wird später gesetzt
+        "env": None,
         "learning_rate": 3e-4,
-        "buffer_size": 2_000_000,
-        "learning_starts": 10_000,
-        "batch_size": 512,
+        "buffer_size": 2_000_000,          # Paper: 200k × 10 tasks
+        "learning_starts": 10_000,         # Paper standard
+        "batch_size": 512,                 # Paper standard
         "tau": 0.005,
         "gamma": 0.99,
         "train_freq": 1,
@@ -243,9 +247,9 @@ def main():
         "total_steps": TOTAL_STEPS,
         "max_episode_steps": MAX_STEPS,
         "run_name": RUN,
-        # Netzwerkgrößen explizit loggen und verwenden
         "actor_hidden_sizes": [256, 256],
         "critic_hidden_sizes": [1024, 1024, 1024],
+        "parallel_envs": num_parallel_envs,  # For GPU throughput, not Paper constraint
     }
 
     wandb.init(
@@ -262,11 +266,13 @@ def main():
 
     print("=" * 70)
     print("Meta-World MT10 Training (Custom SAC)")
-    print("Based on: McLean et al. 2025 - Multi-Task RL Enables Parameter Scaling | Grokking Deep RL")
+    print("Paper: McLean et al. 2025 - Multi-Task RL Enables Parameter Scaling")
     print(f"Run: {RUN}")
     print(f"Model directory: {model_dir}")
     print(f"Actor: {sac_config['actor_hidden_sizes']}, Critic: {sac_config['critic_hidden_sizes']}")
-    print(f"Buffer: {sac_config['buffer_size'] // 10:,}k per task × 10 tasks")
+    print(f"Buffer: {sac_config['buffer_size'] // 10:,}k per task × 10 tasks (PAPER)")
+    if num_parallel_envs > 1:
+        print(f"⚡ GPU Optimization: {num_parallel_envs}× parallel environments")
     print("=" * 70)
 
     # --------------------- Env ---------------------
