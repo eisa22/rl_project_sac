@@ -35,12 +35,20 @@ def make_env(task_name, rank, seed, max_episode_steps, normalize_reward=False):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Meta-World Training mit WandB")
+
+    # Die zwei gewünschten Argumente
+    parser.add_argument("--task_name", type=str, default="reach-v3",
+                        help="Name des Meta-World Tasks (z.B. button-press-v3, reach-v3)")
+    parser.add_argument("--total_timesteps", type=int, default=1_000_000,
+                        help="Anzahl der Training Steps insgesamt")
+
     # ==================== CONFIGURATION ====================
     # Wir speichern alles in einem Dictionary für WandB
     config = {
-        "task_name": "reach-v3",
+        "task_name": args.task_name,
         "algorithm": "SAC",
-        "total_timesteps": 500_000,
+        "total_timesteps": args.total_timesteps,
         "max_episode_steps": 500,
         "seed": 42,
         "n_envs": 8,
@@ -61,7 +69,7 @@ if __name__ == "__main__":
     }
 
     # Verzeichnisse erstellen
-    os.makedirs("./metaworld_models", exist_ok=True)
+    os.makedirs(f"./metaworld_models/{args.task_name}", exist_ok=True)
 
     # ==================== WANDB INIT ====================
     run = wandb.init(
@@ -71,26 +79,27 @@ if __name__ == "__main__":
         sync_tensorboard=True,  # WICHTIG: Liest SB3 Metriken automatisch
         monitor_gym=True,       # Versucht Videos zu speichern (wenn Render möglich)
         save_code=True,         # Speichert dieses Skript in der Cloud
-        name=f"{config['algorithm']}_{config['task_name']}_seed{config['seed']}",
+        name=f"{config['algorithm']}_{args.task_name}_seed{config['seed']}",
     )
 
     print(f"=" * 60)
-    print(f"Meta-World MT1 Training: {config['task_name']} mit WandB Logging")
+    print(f"Meta-World MT1 Training: {args.task_name} mit WandB Logging")
+    print(f"Steps: {args.total_timesteps}")
     print(f"Run ID: {run.id}")
     print(f"=" * 60)
 
     # ==================== ENV SETUP ====================
     if config['use_parallel']:
         env = SubprocVecEnv(
-            [make_env(config['task_name'], i, config['seed'], config['max_episode_steps'], config['normalize_reward'])
+            [make_env(args.task_name, i, config['seed'], config['max_episode_steps'], config['normalize_reward'])
              for i in range(config['n_envs'])],
             start_method='spawn'
         )
     else:
-        env = make_env(config['task_name'], 0, config['seed'], config['max_episode_steps'], config['normalize_reward'])()
+        env = make_env(args.task_name, 0, config['seed'], config['max_episode_steps'], config['normalize_reward'])()
 
     # Eval Env
-    eval_env = make_env(config['task_name'], 0, config['seed'] + 1000, config['max_episode_steps'], normalize_reward=False)()
+    eval_env = make_env(args.task_name, 0, config['seed'] + 1000, config['max_episode_steps'], normalize_reward=False)()
 
     # ==================== AGENT SETUP ====================
 
@@ -129,8 +138,8 @@ if __name__ == "__main__":
     # 2. Eval Callback (Loggt Validierungs-Erfolg zu WandB)
     eval_callback = EvalCallback(
         eval_env,
-        best_model_save_path=f"./metaworld_models/best_{config['task_name']}/",
-        log_path=f"./metaworld_logs/eval_{config['task_name']}/",
+        best_model_save_path=f"./metaworld_models/best_{args.task_name}/",
+        log_path=f"./metaworld_logs/eval_{args.task_name}/",
         eval_freq=config['eval_freq'],
         n_eval_episodes=config['n_eval_episodes'],
         deterministic=True,
@@ -142,7 +151,7 @@ if __name__ == "__main__":
 
     try:
         model.learn(
-            total_timesteps=config['total_timesteps'],
+            total_timesteps=args.total_timesteps,
             callback=[wandb_callback, eval_callback],
             progress_bar=True
         )
@@ -150,7 +159,7 @@ if __name__ == "__main__":
         print("Training unterbrochen...")
     finally:
         # Sauber beenden
-        model.save(f"./metaworld_models/{config['algorithm']}_{config['task_name']}_final")
+        model.save(f"./metaworld_models/{args.task_name}_{config['task_name']}_final")
         env.close()
         eval_env.close()
         run.finish()
