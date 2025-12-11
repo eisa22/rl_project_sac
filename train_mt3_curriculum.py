@@ -14,24 +14,53 @@ from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback,
 
 
 # ============================================================
-#   MT10 Env Wrapper (episodic)
+#   MT3 Curriculum Env Wrapper (reach → push → pick-place)
 # ============================================================
 
-class MetaWorldMT10Env(gym.Env):
+class MetaWorldMT3CurriculumEnv(gym.Env):
+    """
+    MT3 with Curriculum Learning:
+    Phase 1: reach-v3 only (until 60% success)
+    Phase 2: reach + push (until push reaches 50% success)
+    Phase 3: all 3 tasks (reach + push + pick-place)
+    
+    Similar structure to MetaWorldMT10Env but with curriculum task unlocking.
+    """
     metadata = {"render_modes": ["human", "rgb_array"]}
 
-    def __init__(self, seed=0, max_episode_steps=150, render_mode=None, fixed_task_name=None):
+    def __init__(self, seed=0, max_episode_steps=150, render_mode=None, 
+                 curriculum_thresholds=None, fixed_task_name=None):
         super().__init__()
+        
+        # MT3 task curriculum: reach → push → pick-place
+        self.curriculum_tasks = ['reach-v3', 'push-v3', 'pick-place-v3']
+        
+        # Curriculum thresholds: success rate needed to unlock next task
+        if curriculum_thresholds is None:
+            self.curriculum_thresholds = [0.6, 0.5, 0.0]  # [reach, push, pick-place]
+        else:
+            self.curriculum_thresholds = curriculum_thresholds
+        
+        # Build environments for MT3 tasks only (from MT10)
         self.mt10 = metaworld.MT10()
-        self.task_envs = {name: cls(render_mode=render_mode) for name, cls in self.mt10.train_classes.items()}
-        self.tasks = list(self.mt10.train_tasks)
-        self.task_names = list(self.task_envs.keys())
-        self.num_tasks = len(self.task_names)
+        all_train_classes = self.mt10.train_classes
+        all_train_tasks = list(self.mt10.train_tasks)
+        
+        self.task_envs = {name: all_train_classes[name](render_mode=render_mode) 
+                         for name in self.curriculum_tasks}
+        self.tasks = [t for t in all_train_tasks if t.env_name in self.curriculum_tasks]
+        self.task_names = self.curriculum_tasks
+        self.num_tasks = len(self.curriculum_tasks)  # Always 3 for one-hot encoding
         self.task_id_map = {name: i for i, name in enumerate(self.task_names)}
         self.render_mode = render_mode
         self.fixed_task_name = fixed_task_name
+        
+        # Curriculum state tracking
+        self.active_tasks = [self.curriculum_tasks[0]]  # Start with reach only
+        self.task_success_history = {name: [] for name in self.curriculum_tasks}
+        self.curriculum_unlocked = [True, False, False]  # [reach, push, pick-place]
 
-        # Reference space
+        # Reference space (same as MT10Env)
         ref_env = self.task_envs[self.task_names[0]]
         base_obs_space = ref_env.observation_space
 
@@ -57,17 +86,54 @@ class MetaWorldMT10Env(gym.Env):
         self._step = 0
 
     def _sample_task(self):
+        """Sample from currently active tasks in curriculum."""
         import random
         if self.fixed_task_name and self.fixed_task_name in self.task_envs:
             env_name = self.fixed_task_name
-            # select the first matching task object for the fixed env name
             self._current_task = next(t for t in self.tasks if t.env_name == env_name)
         else:
-            self._current_task = random.choice(self.tasks)
+            # Sample only from active curriculum tasks
+            active_task_pool = [t for t in self.tasks if t.env_name in self.active_tasks]
+            self._current_task = random.choice(active_task_pool)
             env_name = self._current_task.env_name
         self._tid = self.task_id_map[env_name]
         self._env = self.task_envs[env_name]
         self._env.set_task(self._current_task)
+    
+    def update_curriculum(self, task_name, success):
+        """Track success and unlock next task if threshold met."""
+        self.task_success_history[task_name].append(success)
+        
+        # Check if we should unlock next task
+        for i, name in enumerate(self.curriculum_tasks):
+            if self.curriculum_unlocked[i]:
+                # Calculate recent success rate (last 50 episodes)
+                recent_history = self.task_success_history[name][-50:]
+                if len(recent_history) >= 20:  # Require minimum episodes
+                    success_rate = np.mean(recent_history)
+                    
+                    # Unlock next task if threshold met
+                    if i < len(self.curriculum_tasks) - 1 and not self.curriculum_unlocked[i + 1]:
+                        if success_rate >= self.curriculum_thresholds[i]:
+                            next_task = self.curriculum_tasks[i + 1]
+                            self.curriculum_unlocked[i + 1] = True
+                            self.active_tasks.append(next_task)
+                            return True, next_task, success_rate
+        return False, None, None
+    
+    def get_curriculum_status(self):
+        """Return current curriculum state for logging."""
+        status = {}
+        for i, name in enumerate(self.curriculum_tasks):
+            unlocked = self.curriculum_unlocked[i]
+            history = self.task_success_history[name][-50:]
+            success_rate = np.mean(history) if len(history) > 0 else 0.0
+            status[name] = {
+                'unlocked': unlocked,
+                'success_rate': success_rate,
+                'episodes': len(self.task_success_history[name])
+            }
+        return status
 
     def _augment_obs(self, obs):
         onehot = np.zeros(self.num_tasks, dtype=np.float32)
@@ -118,123 +184,35 @@ class MetaWorldMT10Env(gym.Env):
 
 
 # ============================================================
-#   W&B Callback
-# ============================================================
-
-class WandbCallback(BaseCallback):
-    def __init__(self, log_freq=1000, verbose=0):
-        super().__init__(verbose)
-        self.log_freq = log_freq
-        self.episode_rewards = []
-        self.episode_successes = []
-        self.task_episode_rewards = {}  # {task_name: [rewards]}
-        self.task_episode_successes = {}  # {task_name: [successes]}
-
-    def _on_step(self):
-        # Track episode rewards and successes from the environment's info
-        # In DummyVecEnv, we get dones and infos for all environments
-        if hasattr(self.model.env, 'buf_dones') and hasattr(self.model.env, 'buf_infos'):
-            dones = self.model.env.buf_dones
-            infos = self.model.env.buf_infos
-            
-            for i in range(len(dones)):
-                if dones[i]:
-                    # Episode finished for environment i
-                    info = infos[i] if infos and i < len(infos) else {}
-                    
-                    # Get episode reward from Monitor wrapper
-                    if hasattr(self.model.env, 'envs') and i < len(self.model.env.envs):
-                        monitor_env = self.model.env.envs[i]
-                        if hasattr(monitor_env, 'episode_returns'):
-                            ep_reward = monitor_env.episode_returns[-1] if monitor_env.episode_returns else 0.0
-                        else:
-                            ep_reward = 0.0
-                    else:
-                        ep_reward = 0.0
-                    
-                    # Get success status
-                    ep_success = info.get("success", False) if isinstance(info, dict) else False
-                    
-                    # Get task name
-                    task_name = info.get("task_name", "unknown") if isinstance(info, dict) else "unknown"
-                    
-                    # Global tracking
-                    self.episode_rewards.append(ep_reward)
-                    self.episode_successes.append(int(ep_success))
-                    
-                    # Task-specific tracking
-                    if task_name not in self.task_episode_rewards:
-                        self.task_episode_rewards[task_name] = []
-                        self.task_episode_successes[task_name] = []
-                    
-                    self.task_episode_rewards[task_name].append(ep_reward)
-                    self.task_episode_successes[task_name].append(int(ep_success))
-        
-        # Log metrics every log_freq steps
-        if self.n_calls % self.log_freq == 0:
-            logs = {k: v for k, v in self.model.logger.name_to_value.items()}
-            logs["global_step"] = self.num_timesteps
-            
-            # Log overall episode returns
-            if self.episode_rewards:
-                logs["train/episode_reward_mean"] = np.mean(self.episode_rewards)
-                logs["train/episode_reward_std"] = np.std(self.episode_rewards)
-                logs["train/episode_reward_max"] = np.max(self.episode_rewards)
-                logs["train/episode_reward_min"] = np.min(self.episode_rewards)
-                self.episode_rewards = []
-            
-            # Log overall success rate
-            if self.episode_successes:
-                logs["train/success_rate"] = np.mean(self.episode_successes)
-                self.episode_successes = []
-            
-            # Log task-specific metrics
-            for task_name in sorted(self.task_episode_rewards.keys()):
-                if self.task_episode_rewards[task_name]:
-                    task_rewards = self.task_episode_rewards[task_name]
-                    task_successes = self.task_episode_successes[task_name]
-                    
-                    safe_task_name = task_name.replace("-", "_")
-                    logs[f"train/task/{safe_task_name}/episode_reward_mean"] = np.mean(task_rewards)
-                    logs[f"train/task/{safe_task_name}/episode_reward_std"] = np.std(task_rewards)
-                    logs[f"train/task/{safe_task_name}/success_rate"] = np.mean(task_successes)
-                    
-                    # Clear task-specific buffers
-                    self.task_episode_rewards[task_name] = []
-                    self.task_episode_successes[task_name] = []
-            
-            wandb.log(logs)
-        return True
-
-
-# ============================================================
 #   MAIN
 # ============================================================
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_name", type=str, default="mt10_run")
-    parser.add_argument("--total_steps", type=int, default=2_000_000)
+    parser.add_argument("--run_name", type=str, default="mt3_curriculum_run")
+    parser.add_argument("--total_steps", type=int, default=1_500_000)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--curriculum_thresholds", type=float, nargs=3, 
+                       default=[0.6, 0.5, 0.0],
+                       help="Success thresholds for [reach, push, pick-place]")
     args = parser.parse_args()
 
     RUN = args.run_name
     TOTAL_STEPS = args.total_steps
     SEED = args.seed
     MAX_STEPS = 150
+    CURRICULUM_THRESHOLDS = args.curriculum_thresholds
 
-    # --------------------- SAC Config (Paper: McLean et al. 2025) ---------------------
-    # Allow parallel environments for GPU throughput (doesn't affect hyperparameters)
+    # --------------------- SAC Config (Based on MT10 config) ---------------------
     num_parallel_envs = int(os.environ.get("NUM_PARALLEL_ENVS", "1"))
     
-    # PAPER HYPERPARAMETERS (FIXED)
     sac_config = {
         "policy": "MlpPolicy",
         "env": None,
         "learning_rate": 3e-4,
-        "buffer_size": 2_000_000,          # Paper: 200k × 10 tasks
-        "learning_starts": 10_000,         # Paper standard
-        "batch_size": 512,                 # Paper standard
+        "buffer_size": 600_000,            # 200k × 3 tasks
+        "learning_starts": 5_000,          # Lower for MT3 (vs 10k for MT10)
+        "batch_size": 512,
         "tau": 0.005,
         "gamma": 0.99,
         "train_freq": 1,
@@ -248,35 +226,42 @@ def main():
         "max_episode_steps": MAX_STEPS,
         "run_name": RUN,
         "actor_hidden_sizes": [256, 256],
-        "critic_hidden_sizes": [1024, 1024, 1024],
-        "parallel_envs": num_parallel_envs,  # For GPU throughput, not Paper constraint
+        "critic_hidden_sizes": [512, 512, 512],
+        "parallel_envs": num_parallel_envs,
+        "curriculum_thresholds": CURRICULUM_THRESHOLDS,
     }
 
     wandb.init(
+        entity="Robot_learning_2025",
         project="Robot_learning_2025",
         name=RUN,
         config=sac_config
     )
 
-    os.makedirs("./models_mt10", exist_ok=True)
+    os.makedirs("./models_mt3", exist_ok=True)
     
     # Create run-specific model directory
-    model_dir = f"./models_mt10/{RUN}"
+    model_dir = f"./models_mt3/{RUN}"
     os.makedirs(model_dir, exist_ok=True)
 
     print("=" * 70)
-    print("Meta-World MT10 Training (Custom SAC)")
-    print("Paper: McLean et al. 2025 - Multi-Task RL Enables Parameter Scaling")
+    print("Meta-World MT3 Curriculum Training (Custom SAC)")
+    print("Curriculum: reach-v3 → push-v3 → pick-place-v3")
+    print(f"Thresholds: reach={CURRICULUM_THRESHOLDS[0]:.0%}, push={CURRICULUM_THRESHOLDS[1]:.0%}")
     print(f"Run: {RUN}")
     print(f"Model directory: {model_dir}")
     print(f"Actor: {sac_config['actor_hidden_sizes']}, Critic: {sac_config['critic_hidden_sizes']}")
-    print(f"Buffer: {sac_config['buffer_size'] // 10:,}k per task × 10 tasks (PAPER)")
+    print(f"Buffer: {sac_config['buffer_size'] // 3:,}k per task × 3 tasks")
     if num_parallel_envs > 1:
         print(f"⚡ GPU Optimization: {num_parallel_envs}× parallel environments")
     print("=" * 70)
 
     # --------------------- Env ---------------------
-    base_env = MetaWorldMT10Env(seed=SEED, max_episode_steps=MAX_STEPS)
+    base_env = MetaWorldMT3CurriculumEnv(
+        seed=SEED, 
+        max_episode_steps=MAX_STEPS,
+        curriculum_thresholds=CURRICULUM_THRESHOLDS
+    )
     
     # Get env dimensions
     obs_dim = base_env.observation_space.shape[0]
@@ -300,9 +285,10 @@ def main():
     )
     
     print(f"✓ SAC Agent initialized with {num_tasks} per-task buffers")
+    print(f"📚 Curriculum starting with: {base_env.active_tasks}")
     
     # --------------------- Training Loop ---------------------
-    print("\n🚀 Starting MT10 Training ...\n")
+    print("\n🚀 Starting MT3 Curriculum Training ...\n")
     
     obs, info = base_env.reset()
     episode_reward = 0
@@ -350,11 +336,22 @@ def main():
                 task_successes[task_name].append(success)
                 task_lengths[task_name].append(episode_length)
                 
+                # Update curriculum (check for task unlocks)
+                unlocked, new_task, unlock_success_rate = base_env.update_curriculum(task_name, success)
+                if unlocked:
+                    pbar.write(f"\n🎓 CURRICULUM UNLOCK: {new_task} added! ({task_name} reached {unlock_success_rate:.1%} success)\n")
+                    wandb.log({
+                        "curriculum/task_unlocked": len(base_env.active_tasks) - 1,
+                        "curriculum/unlock_step": step,
+                        f"curriculum/{task_name.replace('-', '_')}_unlock_success": unlock_success_rate,
+                    })
+                
                 # Log overall metrics
                 wandb.log({
                     "train/episode_reward": episode_reward,
                     "train/episode_length": episode_length,
                     "train/success": success,
+                    "curriculum/num_active_tasks": len(base_env.active_tasks),
                     "global_step": step,
                 })
                 
@@ -368,9 +365,10 @@ def main():
                         f"train/task/{safe_name}/length_mean": np.mean(task_lengths[task_name][-10:]),
                     })
                 
-                # Update progress bar
+                # Update progress bar with curriculum info
                 pbar.set_postfix({
                     'ep': episode_count,
+                    'tasks': len(base_env.active_tasks),
                     'task': task_name.split('-')[0][:6],
                     'rew': f'{episode_reward:.1f}',
                     'succ': success
@@ -383,7 +381,7 @@ def main():
             
             pbar.update(1)
             
-            # Save checkpoint
+            # Save checkpoint (same as MT10 but with curriculum state)
             if step % 100_000 == 0 and step > 0:
                 save_path = f"{model_dir}/checkpoint_{step}.pt"
                 torch.save({
@@ -391,8 +389,17 @@ def main():
                     'q1': agent.q1.state_dict(),
                     'q2': agent.q2.state_dict(),
                     'step': step,
+                    'curriculum_unlocked': base_env.curriculum_unlocked,
+                    'active_tasks': base_env.active_tasks,
                 }, save_path)
-                pbar.write(f"💾 Checkpoint saved: {save_path}")
+                
+                # Log curriculum status
+                curriculum_status = base_env.get_curriculum_status()
+                pbar.write(f"\n💾 Checkpoint {step}: Active tasks = {base_env.active_tasks}")
+                for task, status in curriculum_status.items():
+                    if status['unlocked']:
+                        pbar.write(f"  ✓ {task}: {status['success_rate']:.1%} success ({status['episodes']} eps)")
+                pbar.write("")
     
     # --------------------- Final Save ---------------------
     final_path = f"{model_dir}/final_model.pt"
@@ -405,7 +412,18 @@ def main():
         'q2_target': agent.q2_target.state_dict(),
         'log_alpha': agent.log_alpha if agent.log_alpha is not None else None,
         'step': TOTAL_STEPS,
+        'curriculum_unlocked': base_env.curriculum_unlocked,
+        'active_tasks': base_env.active_tasks,
     }, final_path)
+
+    # Print final curriculum status
+    print("\n" + "=" * 70)
+    print("Final Curriculum Status:")
+    curriculum_status = base_env.get_curriculum_status()
+    for task, status in curriculum_status.items():
+        unlock_status = "✓ UNLOCKED" if status['unlocked'] else "✗ LOCKED"
+        print(f"  {unlock_status} {task}: {status['success_rate']:.1%} success ({status['episodes']} episodes)")
+    print("=" * 70)
 
     wandb.finish()
     base_env.close()

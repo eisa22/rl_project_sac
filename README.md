@@ -36,8 +36,8 @@ pip install torch torchvision torchaudio --index-url [https://download.pytorch.o
 
 ### 🧠 Training starten
 
-Das Training wird über `train_metaworld.py` gesteuert.  
-Es gibt zwei Modi:
+Das Training wird über `train_metaworld.py` oder `train_mt3_curriculum.py` gesteurt.  
+Es gibt drei Modi:
 
 ---
 
@@ -60,6 +60,44 @@ Beispiel:
 ```bash
 python train_metaworld.py --mode single --env reach-v2 --run_name samuel_reach_bigcritic
 ```
+
+---
+
+#### 2️⃣ MT3 Curriculum Learning
+
+Trainiert SAC auf **3 Tasks mit Curriculum Learning**: `reach-v2 → push-v2 → pick-place-v2`
+
+Das Training beginnt nur mit `reach-v2`. Wenn eine Task einen Erfolgs-Schwellenwert erreicht, wird die nächste Task freigeschaltet.
+
+**Beispiele:**
+
+```bash
+# Standard-Training (1.5M steps, 60% reach / 50% push thresholds)
+python train_mt3_curriculum.py --run_name thomas_mt3_test
+
+# Custom Thresholds (strengere Anforderungen)
+python train_mt3_curriculum.py --run_name mt3_strict --curriculum_thresholds 0.7 0.6 0.0
+
+# Schneller Test mit lockeren Thresholds
+python train_mt3_curriculum.py --run_name mt3_quick --total_steps 500_000 --curriculum_thresholds 0.5 0.4 0.0
+```
+
+**Parameter:**
+- `--run_name`: Experiment-Name (erscheint in W&B)
+- `--total_steps`: Gesamtzahl Trainingsschritte (default: 1,500,000)
+- `--seed`: Random seed (default: 42)
+- `--curriculum_thresholds`: Drei Werte für Success-Thresholds `[reach, push, pick-place]` (default: 0.6 0.5 0.0)
+
+**Curriculum-Ablauf:**
+1. **Phase 1**: Training nur auf `reach-v2` bis 60% Erfolgsrate
+2. **Phase 2**: `reach + push` trainieren bis push 50% erreicht
+3. **Phase 3**: Alle 3 Tasks (`reach + push + pick-place`)
+
+**W&B Metriken:**
+- `curriculum/num_active_tasks`: Anzahl aktiver Tasks
+- `curriculum/task_unlocked`: Welche Task wurde freigeschaltet
+- `curriculum/unlock_step`: Schritt bei dem Unlock erfolgte
+- `train/task/{task_name}/success_rate`: Per-Task Erfolgsraten
 
 ### 📊 Weights & Biases (W&B) Setup
 1. Login
@@ -97,6 +135,20 @@ Implementiert den eigentlichen **Soft Actor-Critic (SAC)** Algorithmus:
 - Logging der Trainingsmetriken
 
 Dieses File enthält die lernenden Komponenten des Agents.
+
+---
+
+### `train_mt3_curriculum.py`
+Curriculum Learning für MT3 (reach → push → pick-place):
+
+- beginnt mit nur einem Task (`reach-v2`)
+- schaltet automatisch neue Tasks frei basierend auf Erfolgsrate
+- trackt Per-Task Erfolgsraten über die letzten 50 Episoden
+- nutzt gleiche SAC-Architektur wie `train_metaworld.py`
+- speichert Curriculum-Status in Checkpoints
+- 200k Buffer pro Task (600k total)
+
+Ideal für **schrittweises Multi-Task Learning**.
 
 ---
 
