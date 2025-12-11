@@ -13,9 +13,9 @@
 # =============================================================================
 # Paper: McLean et al. 2025 - "Multi-Task RL Enables Parameter Scaling"
 # Hardware: A100 (80GB VRAM, 64 CPU cores) - FULL NODE ALLOCATION
-# Expected Runtime: 40-50 hours (48 parallel envs, all 64 CPUs utilized)
-# GPU Utilization: 85-95% (48 parallel environments)
-# CPU Utilization: ~90% (physics simulation now fully parallelized)
+# Expected Runtime: 35-45 hours (32 parallel envs @ ~2 CPUs/env - optimal balance)
+# GPU Utilization: 85-95% (32 parallel environments)
+# CPU Utilization: ~85% (reduced context switching vs 48 envs)
 # =============================================================================
 
 echo "========================================="
@@ -46,7 +46,7 @@ export SAC_CRITIC_HIDDEN="1024,1024,1024" # Paper: [1024, 1024, 1024] (critic sc
 # GPU OPTIMIZATION (A100-Specific)
 # =============================================================================
 # This does NOT affect Paper hyperparameters, only GPU throughput
-export NUM_PARALLEL_ENVS=48              # A100: 48× parallel MuJoCo instances
+export NUM_PARALLEL_ENVS=32              # A100: 32× parallel MuJoCo instances (optimal: 2 CPUs/env)
 export CUDA_VISIBLE_DEVICES=0
 
 # W&B Configuration
@@ -67,11 +67,12 @@ echo "Critic: [$SAC_CRITIC_HIDDEN] (Paper: Critic scaling > Actor scaling!)"
 echo ""
 echo "GPU & CPU OPTIMIZATION (FULL NODE ALLOCATION):"
 echo "Hardware: A100 (80GB VRAM, 64 CPU cores)"
-echo "Parallel Envs: $NUM_PARALLEL_ENVS× (48 MuJoCo simulations in parallel)"
+echo "Parallel Envs: $NUM_PARALLEL_ENVS× (32 MuJoCo simulations - optimized ratio)"
+echo "CPU Allocation: 2 CPUs per environment (reduced context switching)"
 echo "Expected GPU Util: 85-95%"
-echo "Expected CPU Util: ~90% (physics simulation parallelized)"
-echo "Expected VRAM: ~50-55GB / 80GB"
-echo "Expected Training Time: 40-50 hours (vs 70h with only 16 CPUs)"
+echo "Expected CPU Util: ~85% (optimal balance)"
+echo "Expected VRAM: ~40-45GB / 80GB"
+echo "Expected Training Time: 35-45 hours (optimized CPU/env ratio)"
 echo "========================================="
 echo ""
 
