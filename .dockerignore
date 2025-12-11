@@ -1,0 +1,44 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs and outputs
+logs/
+wandb/
+*.log
+
+# Models (don't include in image, will be generated)
+models_mt10/
+
+# Docker
+Dockerfile
+.dockerignore
+*.sif
+
+# Documentation (but NOT requirements.txt!)
+README.md
+*.pdf
+dataLAB_Cluster.txt
+*.txt
+!requirements.txt
+
+# Cluster scripts (not needed in container)
+*.sh
