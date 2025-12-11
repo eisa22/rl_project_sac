@@ -2,19 +2,20 @@
 #SBATCH --job-name=mt10_20M_a100
 #SBATCH --partition=GPU-a100
 #SBATCH --gres=gpu:a100:1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=64G
-#SBATCH --time=72:00:00
+#SBATCH --cpus-per-task=64
+#SBATCH --mem=128G
+#SBATCH --time=96:00:00
 #SBATCH --output=/home/e11704784/metaworld_project/logs/mt10_20M_%j.log
 #SBATCH --error=/home/e11704784/metaworld_project/logs/mt10_20M_%j.err
 
 # =============================================================================
-# MT10 Full Training (20M Timesteps) - A100 Optimized
+# MT10 Full Training (20M Timesteps) - A100 Optimized (Full Node)
 # =============================================================================
 # Paper: McLean et al. 2025 - "Multi-Task RL Enables Parameter Scaling"
-# Hardware: A100 (80GB VRAM, 16 CPU cores)
-# Expected Runtime: 50-60 hours (drawer tasks are slow)
-# GPU Utilization: 80-90% (48 parallel environments)
+# Hardware: A100 (80GB VRAM, 64 CPU cores) - FULL NODE ALLOCATION
+# Expected Runtime: 40-50 hours (48 parallel envs, all 64 CPUs utilized)
+# GPU Utilization: 85-95% (48 parallel environments)
+# CPU Utilization: ~90% (physics simulation now fully parallelized)
 # =============================================================================
 
 echo "========================================="
@@ -64,12 +65,13 @@ echo "Buffer Size: $(printf '%s' "$SAC_BUFFER_SIZE" | sed ':a;s/\B[0-9]\{3\}\>/,
 echo "Actor: [$SAC_ACTOR_HIDDEN]"
 echo "Critic: [$SAC_CRITIC_HIDDEN] (Paper: Critic scaling > Actor scaling!)"
 echo ""
-echo "GPU OPTIMIZATION:"
-echo "Hardware: A100 (80GB VRAM)"
-echo "Parallel Envs: $NUM_PARALLEL_ENVS× (8-10× faster)"
-echo "Expected GPU Util: 80-90%"
-echo "Expected VRAM: ~45-50GB / 80GB"
-echo "Expected Training Time: 50-60 hours (drawer tasks: ~55 steps/sec)"
+echo "GPU & CPU OPTIMIZATION (FULL NODE ALLOCATION):"
+echo "Hardware: A100 (80GB VRAM, 64 CPU cores)"
+echo "Parallel Envs: $NUM_PARALLEL_ENVS× (48 MuJoCo simulations in parallel)"
+echo "Expected GPU Util: 85-95%"
+echo "Expected CPU Util: ~90% (physics simulation parallelized)"
+echo "Expected VRAM: ~50-55GB / 80GB"
+echo "Expected Training Time: 40-50 hours (vs 70h with only 16 CPUs)"
 echo "========================================="
 echo ""
 
