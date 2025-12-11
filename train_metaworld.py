@@ -54,7 +54,9 @@ class MetaWorldMT10Env(gym.Env):
         self._step = 0
 
     def _sample_task(self):
-        self._current_task = self._rng.choice(self.tasks)
+        # Windows-safe task sampling (avoid numpy pickle issues)
+        task_idx = self._rng.integers(0, len(self.tasks))
+        self._current_task = self.tasks[task_idx]
         env_name = self._current_task.env_name
         self._tid = self.task_id_map[env_name]
         self._env = self.task_envs[env_name]
@@ -126,7 +128,7 @@ class WandbCallback(BaseCallback):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--run_name", type=str, default="mt10_run")
-    parser.add_argument("--total_steps", type=int, default=2_000_000)
+    parser.add_argument("--total_steps", type=int, default=5_000_000)  # Paper uses 20M for MT10
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -147,7 +149,9 @@ def main():
             "max_episode_steps": MAX_STEPS,
             "batch_size": 512,
             "gamma": 0.99,
-            "lr": 3e-4
+            "lr": 3e-4,
+            "buffer_size": 1_000_000,
+            "hidden_layers": [1024, 1024, 1024],
         }
     )
 
@@ -170,18 +174,25 @@ def main():
     eval_env = DummyVecEnv([make_env])
 
     # --------------------- SAC Model ---------------------
+    # Hyperparameters based on arXiv:2503.05126v3 (best MT10 results)
+    # Paper findings: Critic scaling is most important, use 3 hidden layers with width 1024
+    policy_kwargs = dict(
+        net_arch=dict(pi=[128, 128, 128], qf=[512, 512, 512])  # Small actor, large critic
+    )
+    
     model = SAC(
         policy="MlpPolicy",
         env=env,
+        policy_kwargs=policy_kwargs,
         learning_rate=3e-4,
-        buffer_size=2_000_000,
+        buffer_size=1_000_000,  # Paper uses 100k*N tasks = 1M for MT10
         learning_starts=10_000,
-        batch_size=512,
+        batch_size=512,  # Paper uses 512 for multi-task
         tau=0.005,
         gamma=0.99,
         train_freq=1,
-        gradient_steps=-1,
-        ent_coef="auto",
+        gradient_steps=-1,  # Update after every step
+        ent_coef="auto",  # Automatic entropy tuning (paper uses this)
         target_entropy="auto",
         verbose=1,
         device="cuda" if torch.cuda.is_available() else "cpu",
@@ -190,7 +201,7 @@ def main():
 
     # --------------------- Callbacks ---------------------
     checkpoint = CheckpointCallback(
-        save_freq=100_000,
+        save_freq=200_000,  # Paper evaluates every 200k steps for MT10
         save_path="./models_mt10/",
         name_prefix="sac_mt10",
         verbose=1
