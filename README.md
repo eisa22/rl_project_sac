@@ -179,3 +179,35 @@ Single-Task Eval	eval_avg_return, eval_success_rate
 Multi-Task Eval	task_name_avg_return, task_name_success_rate (für jeden Task separat) und mean_success_all_tasks
 
 Gerne anpassen :)
+---
+
+## 🆕 Task Embeddings (NEU!)
+
+**Alternative zu One-Hot Encoding**: Learned Task Embeddings für besseren Transfer zwischen Tasks.
+
+### Quick Start
+```bash
+# 1. Tests laufen lassen
+python test_embeddings.py
+
+# 2. Training mit Embeddings
+python train_metaworld_embeddings.py --run_name my_embedding_run --embedding_dim 16
+
+# 3. Embeddings analysieren
+python analyze_embeddings.py --model_path ./models_mt10_embeddings/my_embedding_run/final_model.pt
+```
+
+**Siehe [TASK_EMBEDDINGS_README.md](TASK_EMBEDDINGS_README.md) für vollständige Dokumentation!**
+
+**Vorteile:**
+- 📦 Kompakter als One-Hot (16D statt 10D für MT10)
+- 🧠 Lernt Task-Ähnlichkeiten automatisch
+- 🔄 Besserer Transfer zwischen verwandten Tasks  
+- 📈 Skaliert besser zu vielen Tasks (MT50: 16D statt 50D)
+- 🔍 Visualisierbar und interpretierbar
+
+**Neue Dateien:**
+- `sac_agent_embeddings.py` - SAC mit Task Embeddings
+- `train_metaworld_embeddings.py` - MT10 Training
+- `test_embeddings.py` - Test-Suite
+- `analyze_embeddings.py` - Embedding-Visualisierung
