@@ -7,10 +7,7 @@ import torch
 import wandb
 from tqdm import tqdm
 
-from sac_agent import SACAgent
-from stable_baselines3.common.vec_env import DummyVecEnv
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
+from sac_core_clean import CleanSACAgent
 
 
 # ============================================================
@@ -203,32 +200,30 @@ def main():
     MAX_STEPS = 150
     CURRICULUM_THRESHOLDS = args.curriculum_thresholds
 
-    # --------------------- SAC Config (Based on MT10 config) ---------------------
+    # --------------------- SAC Config (match single-task CleanSAC) ---------------------
     num_parallel_envs = int(os.environ.get("NUM_PARALLEL_ENVS", "1"))
     
     sac_config = {
-        "policy": "MlpPolicy",
-        "env": None,
-        "learning_rate": 3e-4,
-        "buffer_size": 600_000,            # 200k × 3 tasks
-        "learning_starts": 5_000,          # Lower for MT3 (vs 10k for MT10)
-        "batch_size": 512,
-        "tau": 0.005,
+        "learning_rate": 3e-4,             # Single-task default
+        "buffer_size_per_task": 1_000_000, # Same per-task capacity as single-task total
+        "learning_starts": 0,              # Train immediately
+        "batch_size": 500,                 # Single-task default
+        "tau": 0.005,                      # Single-task default
         "gamma": 0.99,
         "train_freq": 1,
-        "gradient_steps": -1,
-        "ent_coef": "auto",
-        "target_entropy": "auto",
-        "verbose": 1,
+        "gradient_steps": 1,
         "device": "cuda" if torch.cuda.is_available() else "cpu",
         "seed": SEED,
         "total_steps": TOTAL_STEPS,
         "max_episode_steps": MAX_STEPS,
         "run_name": RUN,
         "actor_hidden_sizes": [256, 256],
-        "critic_hidden_sizes": [512, 512, 512],
+        "critic_hidden_sizes": [256, 256],
         "parallel_envs": num_parallel_envs,
         "curriculum_thresholds": CURRICULUM_THRESHOLDS,
+        "reward_scale": 5.0,               # Match single-task scaling
+        "alpha_lr": 3e-5,                  # lr * 0.1 (single-task style)
+        "embedding_dim": 8,
     }
 
     wandb.init(
@@ -239,6 +234,13 @@ def main():
     )
 
     os.makedirs("./models_mt3", exist_ok=True)
+    
+    # --------------------- Env ---------------------
+    base_env = MetaWorldMT3CurriculumEnv(
+        seed=SEED, 
+        max_episode_steps=MAX_STEPS,
+        curriculum_thresholds=CURRICULUM_THRESHOLDS
+    )
     
     # Create run-specific model directory
     model_dir = f"./models_mt3/{RUN}"
@@ -251,17 +253,10 @@ def main():
     print(f"Run: {RUN}")
     print(f"Model directory: {model_dir}")
     print(f"Actor: {sac_config['actor_hidden_sizes']}, Critic: {sac_config['critic_hidden_sizes']}")
-    print(f"Buffer: {sac_config['buffer_size'] // 3:,}k per task × 3 tasks")
+    print(f"Buffer: {sac_config['buffer_size_per_task']:,} per task × {base_env.num_tasks} tasks")
     if num_parallel_envs > 1:
         print(f"⚡ GPU Optimization: {num_parallel_envs}× parallel environments")
     print("=" * 70)
-
-    # --------------------- Env ---------------------
-    base_env = MetaWorldMT3CurriculumEnv(
-        seed=SEED, 
-        max_episode_steps=MAX_STEPS,
-        curriculum_thresholds=CURRICULUM_THRESHOLDS
-    )
     
     # Get env dimensions
     obs_dim = base_env.observation_space.shape[0]
@@ -270,7 +265,7 @@ def main():
     num_tasks = base_env.num_tasks
 
     # --------------------- SAC Agent ---------------------
-    agent = SACAgent(
+    agent = CleanSACAgent(
         obs_dim=obs_dim,
         act_dim=act_dim,
         act_limit=act_limit,
@@ -278,13 +273,15 @@ def main():
         gamma=sac_config["gamma"],
         tau=sac_config["tau"],
         lr=sac_config["learning_rate"],
+        alpha_lr=sac_config.get("alpha_lr", sac_config["learning_rate"]),
         hidden_actor=tuple(sac_config["actor_hidden_sizes"]),
         hidden_critic=tuple(sac_config["critic_hidden_sizes"]),
-        buffer_size_per_task=sac_config["buffer_size"] // num_tasks,
-        log_std_min=-20,
+        embedding_dim=sac_config.get("embedding_dim", 8),
+        target_entropy=None,
+        buffer_size_per_task=sac_config["buffer_size_per_task"],
     )
     
-    print(f"✓ SAC Agent initialized with {num_tasks} per-task buffers")
+    print(f"✓ CleanSACAgent initialized with {num_tasks} per-task buffers")
     print(f"📚 Curriculum starting with: {base_env.active_tasks}")
     
     # --------------------- Training Loop ---------------------
@@ -307,7 +304,7 @@ def main():
             if step < sac_config["learning_starts"]:
                 action = base_env.action_space.sample()
             else:
-                action = agent.act(obs, deterministic=False)
+                action = agent.act(obs, task_id=info["task_id"], deterministic=False)
             
             # Environment step
             next_obs, reward, terminated, truncated, info = base_env.step(action)
@@ -315,8 +312,11 @@ def main():
             task_id = info["task_id"]
             task_name = info["task_name"]
             
+            # Scale reward to match single-task settings
+            scaled_reward = reward * sac_config["reward_scale"]
+
             # Store transition
-            agent.add_experience(obs, action, reward, next_obs, done, task_id)
+            agent.add_experience(obs, action, scaled_reward, next_obs, done, task_id)
             
             obs = next_obs
             episode_reward += reward
@@ -324,7 +324,17 @@ def main():
             
             # Train agent
             if step >= sac_config["learning_starts"] and step % sac_config["train_freq"] == 0:
-                agent.update(batch_size=sac_config["batch_size"])
+                losses = agent.update(batch_size=sac_config["batch_size"])
+                if losses and step % 5000 == 0:
+                    wandb.log({
+                        "train/q1_loss": losses.get("q1_loss", 0.0),
+                        "train/q2_loss": losses.get("q2_loss", 0.0),
+                        "train/q_loss": losses.get("q_loss", 0.0),
+                        "train/actor_loss": losses.get("actor_loss", 0.0),
+                        "train/alpha": losses.get("alpha", 0.0),
+                        "train/alpha_loss": losses.get("alpha_loss", 0.0),
+                        "train/step": step,
+                    }, step=step)
             
             # Episode end
             if done:

@@ -54,30 +54,37 @@ class PerTaskReplayBuffer:
     
     def sample_batch(self, batch_size=256):
         """
-        Sample equal number of transitions from each task.
-        Paper requirement: "equal number of samples per task for each update"
+        Sample transitions with equal count from tasks that have data.
+        Ensures the total batch size matches the requested size when possible.
         """
-        samples_per_task = max(1, batch_size // self.num_tasks)
-        
+        # Determine tasks that currently have data
+        tasks_with_data = [tid for tid in range(self.num_tasks) if self.buffers[tid]['size'] > 0]
+        if not tasks_with_data:
+            return None  # No data yet
+
+        num_active = len(tasks_with_data)
+        samples_per_task = max(1, batch_size // num_active)
+        leftover = batch_size - samples_per_task * num_active
+
         obs_list, next_obs_list, acts_list, rews_list, done_list = [], [], [], [], []
-        
-        for task_id in range(self.num_tasks):
+
+        for i, task_id in enumerate(tasks_with_data):
             buf = self.buffers[task_id]
-            if buf['size'] == 0:
-                continue  # Skip empty buffers
-            
-            # Sample from this task's buffer
-            idxs = np.random.randint(0, buf['size'], size=samples_per_task)
-            
+            # Base samples
+            count = samples_per_task
+            # Distribute leftovers across the first few tasks
+            if leftover > 0:
+                count += 1
+                leftover -= 1
+            # Sample indices
+            idxs = np.random.randint(0, buf['size'], size=count)
+
             obs_list.append(buf['obs'][idxs])
             next_obs_list.append(buf['next_obs'][idxs])
             acts_list.append(buf['acts'][idxs])
             rews_list.append(buf['rews'][idxs])
             done_list.append(buf['done'][idxs])
-        
-        if not obs_list:
-            return None  # No data yet
-        
+
         # Concatenate all task samples
         batch = {
             'obs': torch.as_tensor(np.concatenate(obs_list, axis=0), device=device),
@@ -142,9 +149,10 @@ class GaussianPolicy(nn.Module):
         action = self.act_limit * tanh_action
         
         # Compute log probability with tanh correction
-        log_prob = pi_distribution.log_prob(pre_tanh_action)
-        log_prob -= torch.log(self.act_limit * (1 - tanh_action.pow(2)) + 1e-6)
-        log_prob = log_prob.sum(-1, keepdim=True)
+        # Sum base log-prob across action dims
+        log_prob = pi_distribution.log_prob(pre_tanh_action).sum(-1, keepdim=True)
+        # Tanh correction: subtract sum log(1 - tanh(a)^2)
+        log_prob -= torch.log(1 - tanh_action.pow(2) + 1e-6).sum(-1, keepdim=True)
         
         # Mean action (deterministic)
         mu_action = self.act_limit * torch.tanh(mu)
@@ -204,6 +212,7 @@ class SACAgent:
         tau=0.005,
         alpha=0.2,
         lr=3e-4,
+        alpha_lr=None,
         hidden_actor=(256, 256),
         hidden_critic=(1024, 1024, 1024),
         target_entropy=None,
@@ -246,7 +255,8 @@ class SACAgent:
         
         if automatic_entropy_tuning:
             self.log_alpha = torch.zeros(1, requires_grad=True, device=device)
-            self.alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=lr)
+            alpha_lr = lr if alpha_lr is None else alpha_lr
+            self.alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=alpha_lr)
         else:
             self.log_alpha = None
         

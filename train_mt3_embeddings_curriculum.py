@@ -28,7 +28,7 @@ import torch
 import wandb
 from tqdm import tqdm
 
-from sac_agent_embeddings import SACAgentEmbedding
+from sac_core_clean import CleanSACAgent
 
 
 # ============================================================
@@ -239,7 +239,7 @@ def main():
         print(f"Curriculum enabled. Allowed tasks: {env.allowed_task_names}")
 
     # --------------------- Agent ---------------------
-    agent = SACAgentEmbedding(
+    agent = CleanSACAgent(
         obs_dim=obs_dim,
         act_dim=act_dim,
         act_limit=act_limit,
@@ -247,11 +247,12 @@ def main():
         gamma=sac_config["gamma"],
         tau=sac_config["tau"],
         lr=sac_config["learning_rate"],
+        alpha_lr=sac_config["learning_rate"],
         hidden_actor=tuple(sac_config["actor_hidden_sizes"]),
         hidden_critic=tuple(sac_config["critic_hidden_sizes"]),
         embedding_dim=EMB_DIM,
+        target_entropy=None,  # Use default: -act_dim
         buffer_size_per_task=sac_config["buffer_size"] // num_tasks,
-        log_std_min=-20,
     )
 
     print("✓ Agent initialized with task embeddings")
@@ -283,8 +284,8 @@ def main():
             task_name = info["task_name"]
 
             # Store (reward scaling: SAC expects larger rewards)
-            # Meta-World rewards ~0-1, scale by 10 for numerical stability
-            scaled_reward = reward * 10.0
+            # Meta-World rewards ~0-1, scale moderately to avoid exploding Q-values
+            scaled_reward = reward * 5.0
             agent.add_experience(obs, action, scaled_reward, next_obs, done, task_id)
 
             obs = next_obs
@@ -303,8 +304,10 @@ def main():
                     wandb.log({
                         "train/q1_loss": q1_loss,
                         "train/q2_loss": losses.get("q2_loss", 0.0),
+                        "train/q_loss": losses.get("q_loss", 0.0),
                         "train/actor_loss": losses.get("actor_loss", 0.0),
                         "train/alpha": losses.get("alpha", 0.0),
+                        "train/alpha_loss": losses.get("alpha_loss", 0.0),
                         "train/step": step,
                     }, step=step)
             
