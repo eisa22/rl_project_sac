@@ -1,19 +1,18 @@
 """
-Meta-World MT3 Training with Task Embeddings (Custom SAC)
+Meta-World MT3 Training with Task Embeddings (Custom SAC) + Curriculum
 
 Trains 3 tasks jointly (reach-v3, push-v3, pick-place-v3) using learned task
-embeddings instead of one-hot conditioning.
+embeddings and unlocks tasks via a simple curriculum based on success rate.
 
 Key points:
 - Environment returns PURE observations (no one-hot concatenation)
 - `info['task_id']` identifies the task (0..2) for embedding lookup
 - Uses `SACAgentEmbedding` from sac_agent_embeddings.py
 - Per-task replay buffer ensures balanced sampling per task
+- Curriculum: start with reach-v3, unlock push-v3 and pick-place-v3 based on success rates
 
-Run examples:
-    python train_mt3_embeddings.py --run_name mt3_emb_16d
-    python train_mt3_embeddings.py --run_name mt3_emb_32d --embedding_dim 32
-    python train_mt3_embeddings.py --total_steps 800000 --seed 123
+Run example:
+    python train_mt3_embeddings_curriculum.py --curriculum --unlock_threshold 0.6 --window 50 --run_name mt3_curr_emb_16d
 """
 
 from __future__ import annotations
@@ -33,17 +32,17 @@ from sac_agent_embeddings import SACAgentEmbedding
 
 
 # ============================================================
-#   MT3 Env Wrapper (Embeddings; reach, push, pick-place)
+#   MT3 Env Wrapper (Embeddings; reach, push, pick-place) + curriculum gating
 # ============================================================
 
 class MetaWorldMT3EnvEmbedding(gym.Env):
     """
-    MT3 wrapper for Task Embeddings.
+    MT3 wrapper for Task Embeddings with optional curriculum gating.
 
     Differences vs one-hot wrappers:
     - observation_space = pure Meta-World obs (float32)
     - returns task_id in info for embedding lookup
-    - samples tasks uniformly from the 3 selected tasks
+    - samples tasks uniformly among allowed tasks
     """
 
     metadata = {"render_modes": ["human", "rgb_array"]}
@@ -69,6 +68,8 @@ class MetaWorldMT3EnvEmbedding(gym.Env):
         self.task_names = list(self.task_envs.keys())  # keep order from sequence
         self.num_tasks = len(self.task_names)
         self.task_id_map = {name: i for i, name in enumerate(self.task_names)}
+        # Curriculum control: start with all tasks allowed; can be restricted via setter
+        self.allowed_task_names = list(self.task_names)
 
         # Reference env for spaces
         ref_env = self.task_envs[self.task_names[0]]
@@ -94,13 +95,27 @@ class MetaWorldMT3EnvEmbedding(gym.Env):
         self._step = 0
 
     def _sample_task(self):
-        # Uniform sampling among the 3 tasks
-        idx = int(self._rng.integers(low=0, high=len(self.tasks)))
-        self._current_task = self.tasks[idx]
+        # Uniform sampling among currently allowed tasks
+        candidates = [t for t in self.tasks if t.env_name in self.allowed_task_names]
+        if not candidates:
+            # Fallback to all tasks to avoid dead state
+            candidates = self.tasks
+        idx = int(self._rng.integers(low=0, high=len(candidates)))
+        self._current_task = candidates[idx]
         env_name = self._current_task.env_name
         self._tid = self.task_id_map[env_name]
         self._env = self.task_envs[env_name]
         self._env.set_task(self._current_task)
+
+    def set_allowed_tasks(self, names: list[str]):
+        """Restrict sampling to a subset of task names.
+
+        Names must be a subset of self.task_names. If an empty list is provided,
+        no restriction is applied (falls back to all tasks).
+        """
+        valid = set(self.task_names)
+        chosen = [n for n in names if n in valid]
+        self.allowed_task_names = chosen if chosen else list(self.task_names)
 
     def reset(self, seed=None, options=None):
         if seed is not None:
@@ -140,13 +155,20 @@ class MetaWorldMT3EnvEmbedding(gym.Env):
 # ============================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="MT3 (reach/push/pick-place) with Task Embeddings")
-    parser.add_argument("--run_name", type=str, default="mt3_embeddings")
+    parser = argparse.ArgumentParser(description="MT3 (reach/push/pick-place) with Task Embeddings + Curriculum")
+    parser.add_argument("--run_name", type=str, default="mt3_embeddings_curriculum")
     parser.add_argument("--total_steps", type=int, default=1_500_000)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--embedding_dim", type=int, default=16,
                         help="Task embedding dimension (e.g., 8, 16, 32)")
     parser.add_argument("--max_episode_steps", type=int, default=150)
+    # Curriculum flags
+    parser.add_argument("--curriculum", action="store_true",
+                        help="Enable curriculum: start with reach, unlock push/pick-place by success rate")
+    parser.add_argument("--unlock_threshold", type=float, default=0.6,
+                        help="Success rate threshold in window to unlock next task")
+    parser.add_argument("--window", type=int, default=50,
+                        help="Episode window size for success rate")
     args = parser.parse_args()
 
     RUN = args.run_name
@@ -154,26 +176,28 @@ def main():
     SEED = args.seed
     MAX_STEPS = args.max_episode_steps
     EMB_DIM = args.embedding_dim
-    
+    CURR = bool(args.curriculum)
+    THRESH = float(args.unlock_threshold)
+    WINDOW = int(args.window)
 
-    # Config (aligned with custom MT3 defaults; 200k per task → 600k)
+    # Config (aligned with SB3 defaults for stability)
     sac_config = {
-        "learning_rate": 3e-4,
-        "buffer_size": 600_000,
-        "learning_starts": 5_000,
-        "batch_size": 512,
+        "learning_rate": 1e-4,  # REDUCED from 3e-4: SAC sensitive to LR, smaller is safer
+        "buffer_size": 3_000_000,  # SB3 default: 1M per task × 3 tasks
+        "learning_starts": 25_000,  # Increased: let buffer fill more before training
+        "batch_size": 256,  # SB3 default: more stable than 512
         "tau": 0.005,
         "gamma": 0.99,
         "train_freq": 1,
-        "gradient_steps": -1,
+        "gradient_steps": 1,
         "ent_coef": "auto",
         "target_entropy": "auto",
         "device": "cuda" if torch.cuda.is_available() else "cpu",
         "seed": SEED,
         "total_steps": TOTAL_STEPS,
         "max_episode_steps": MAX_STEPS,
-        "actor_hidden_sizes": [256, 256],
-        "critic_hidden_sizes": [512, 512, 512],
+        "actor_hidden_sizes": [256, 256],  # SB3 default (not McLean's large nets)
+        "critic_hidden_sizes": [512, 512, 512],  # SB3 default
         "embedding_dim": EMB_DIM,
     }
 
@@ -184,17 +208,22 @@ def main():
     os.makedirs(model_dir, exist_ok=True)
 
     print("=" * 70)
-    print("Meta-World MT3 Training with Task Embeddings (Custom SAC)")
+    print("Meta-World MT3 Training with Task Embeddings (Custom SAC) + Curriculum")
     print("Tasks: reach-v3, push-v3, pick-place-v3")
     print(f"Run: {RUN}")
     print(f"Model dir: {model_dir}")
     print(f"Actor: {sac_config['actor_hidden_sizes']}, Critic: {sac_config['critic_hidden_sizes']}")
     print(f"Embedding dim: {EMB_DIM}")
     print(f"Buffer: {sac_config['buffer_size'] // 3:,} per task × 3 tasks")
+    print(f"Learning starts: {sac_config['learning_starts']:,} (random exploration first)")
+    print(f"Batch size: {sac_config['batch_size']}")
     print("=" * 70)
 
     # --------------------- Env ---------------------
     env = MetaWorldMT3EnvEmbedding(seed=SEED, max_episode_steps=MAX_STEPS)
+    # Curriculum: start with reach only, unlock others as performance improves
+    if CURR:
+        env.set_allowed_tasks(["reach-v3"])  # stage 1
 
     # Shapes
     obs_dim = env.observation_space.shape[0]  # pure obs (39)
@@ -206,7 +235,8 @@ def main():
     print(f"  obs_dim = {obs_dim} (pure)")
     print(f"  act_dim = {act_dim}")
     print(f"  num_tasks = {num_tasks} ({env.task_names})\n")
-    
+    if CURR:
+        print(f"Curriculum enabled. Allowed tasks: {env.allowed_task_names}")
 
     # --------------------- Agent ---------------------
     agent = SACAgentEmbedding(
@@ -238,6 +268,7 @@ def main():
     task_rewards: dict[str, list[float]] = defaultdict(list)
     task_successes: dict[str, list[bool]] = defaultdict(list)
     task_lengths: dict[str, list[int]] = defaultdict(list)
+    stage = 1  # 1: reach; 2: +push; 3: +pick-place
 
     with tqdm(total=TOTAL_STEPS, desc="Training", unit="step") as pbar:
         for step in range(TOTAL_STEPS):
@@ -251,25 +282,40 @@ def main():
             next_task_id = info["task_id"]  # stays same during episode
             task_name = info["task_name"]
 
-            # Store
-            agent.add_experience(obs, action, reward, next_obs, done, task_id)
+            # Store (reward scaling: SAC expects larger rewards)
+            # Meta-World rewards ~0-1, scale by 10 for numerical stability
+            scaled_reward = reward * 10.0
+            agent.add_experience(obs, action, scaled_reward, next_obs, done, task_id)
 
             obs = next_obs
             task_id = next_task_id
             episode_reward += reward
             episode_length += 1
 
-            # Update
+            # Update (only after buffer is filled)
             if step >= sac_config["learning_starts"] and (step % sac_config["train_freq"] == 0):
                 losses = agent.update(batch_size=sac_config["batch_size"])
                 if step % 1000 == 0:
+                    q1_loss = losses.get("q1_loss", 0.0)
+                    # Warn if Q-loss is suspiciously high
+                    if q1_loss > 100:
+                        print(f"⚠️  WARNING: Q1 Loss very high ({q1_loss:.1f}) at step {step}")
                     wandb.log({
-                        "train/q1_loss": losses.get("q1_loss", 0.0),
+                        "train/q1_loss": q1_loss,
                         "train/q2_loss": losses.get("q2_loss", 0.0),
                         "train/actor_loss": losses.get("actor_loss", 0.0),
                         "train/alpha": losses.get("alpha", 0.0),
                         "train/step": step,
                     }, step=step)
+            
+            # Log alpha even during warmup (but don't train)
+            elif step % 1000 == 0:
+                current_alpha = agent.alpha if isinstance(agent.alpha, float) else agent.alpha
+                wandb.log({
+                    "train/alpha": current_alpha,
+                    "train/step": step,
+                    "train/warmup": True,
+                }, step=step)
 
             if done:
                 episode_count += 1
@@ -299,6 +345,23 @@ def main():
                 rates = [np.mean(task_successes[n][-50:]) for n in env.task_names if task_successes[n]]
                 if rates:
                     log["train/mean_success_all_tasks"] = float(np.mean(rates))
+                # Curriculum progression
+                if CURR:
+                    # Compute windowed success rates for tasks
+                    sr = {n: (float(np.mean(task_successes[n][-WINDOW:])) if task_successes[n] else 0.0)
+                          for n in env.task_names}
+                    log["curriculum/stage"] = stage
+                    log["curriculum/allowed_tasks"] = ",".join(env.allowed_task_names)
+                    # Unlock push when reach stable
+                    if stage == 1 and sr.get("reach-v3", 0.0) >= THRESH:
+                        env.set_allowed_tasks(["reach-v3", "push-v3"])  # stage 2
+                        stage = 2
+                        print(f"\n✨ Curriculum: unlocked 'push-v3' (reach SR={sr.get('reach-v3',0.0):.2f} ≥ {THRESH})")
+                    # Unlock pick-place when reach & push stable
+                    if stage == 2 and sr.get("push-v3", 0.0) >= THRESH:
+                        env.set_allowed_tasks(["reach-v3", "push-v3", "pick-place-v3"])  # stage 3
+                        stage = 3
+                        print(f"\n✨ Curriculum: unlocked 'pick-place-v3' (push SR={sr.get('push-v3',0.0):.2f} ≥ {THRESH})")
                 wandb.log(log, step=step)
 
             pbar.update(1)

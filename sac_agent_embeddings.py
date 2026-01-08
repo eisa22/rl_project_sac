@@ -73,25 +73,31 @@ class PerTaskReplayBuffer:
         
         NEW: Returns task_ids in batch for embedding lookup
         """
-        samples_per_task = max(1, batch_size // self.num_tasks)
-        
+        # Determine active tasks (with at least 1 sample)
+        active_tasks = [tid for tid, buf in self.buffers.items() if buf['size'] > 0]
+        if not active_tasks:
+            return None
+
+        # Balance samples over active tasks (important during curriculum gating)
+        k = len(active_tasks)
+        samples_per_task = max(1, batch_size // k)
+
         obs_list, next_obs_list, acts_list, rews_list, done_list, task_id_list = [], [], [], [], [], []
-        
-        for task_id in range(self.num_tasks):
+
+        for task_id in active_tasks:
             buf = self.buffers.get(task_id)
-            if buf is None or buf['size'] < samples_per_task:
+            if buf is None or buf['size'] <= 0:
                 continue
-                
-            idx = np.random.randint(0, buf['size'], size=samples_per_task)
-            
+
+            n = min(samples_per_task, buf['size'])
+            idx = np.random.randint(0, buf['size'], size=n)
+
             obs_list.append(buf['obs'][idx])
             next_obs_list.append(buf['next_obs'][idx])
             acts_list.append(buf['acts'][idx])
             rews_list.append(buf['rews'][idx])
             done_list.append(buf['done'][idx])
-            
-            # NEW: Track which task each sample comes from
-            task_id_list.append(np.full(samples_per_task, task_id, dtype=np.int64))
+            task_id_list.append(np.full(n, task_id, dtype=np.int64))
         
         if not obs_list:
             return None
@@ -149,7 +155,8 @@ class TaskEmbeddingGaussianPolicy(nn.Module):
     def __init__(self, obs_dim, act_dim, act_limit, num_tasks,
                  hidden_sizes=(256, 256), 
                  embedding_dim=16,  # NEW: Embedding dimension
-                 log_std_min=-20, log_std_max=2):
+                 log_std_min=-20, log_std_max=2,
+                 log_std_init=-3.0):
         super().__init__()
         
         # NEW: Learned task embeddings (trainable lookup table)
@@ -166,6 +173,10 @@ class TaskEmbeddingGaussianPolicy(nn.Module):
         self.log_std_min = log_std_min
         self.log_std_max = log_std_max
         self.act_limit = act_limit
+
+        # Initialize log_std bias towards SB3 default for stability
+        with torch.no_grad():
+            self.log_std_layer.bias.fill_(log_std_init)
 
     def forward(self, obs, task_id):
         """
@@ -219,10 +230,11 @@ class TaskEmbeddingGaussianPolicy(nn.Module):
         tanh_action = torch.tanh(pre_tanh_action)
         action = self.act_limit * tanh_action
         
-        # Compute log probability with tanh correction
-        log_prob = pi_distribution.log_prob(pre_tanh_action)
-        log_prob -= torch.log(self.act_limit * (1 - tanh_action.pow(2)) + 1e-6)
-        log_prob = log_prob.sum(-1, keepdim=True)
+        # Compute log probability with numerically stable tanh correction
+        # Reference: SAC stable formulation
+        log_prob = pi_distribution.log_prob(pre_tanh_action).sum(-1, keepdim=True)
+        correction = 2.0 * (np.log(2) - pre_tanh_action - F.softplus(-2.0 * pre_tanh_action))
+        log_prob = log_prob - correction.sum(-1, keepdim=True)
         
         # Mean action (deterministic)
         mu_action = self.act_limit * torch.tanh(mu)
@@ -340,7 +352,7 @@ class SACAgentEmbedding:
         gamma=0.99,
         tau=0.005,
         alpha=0.2,
-        lr=3e-4,
+        lr=1e-4,  # REDUCED: from 3e-4 to 1e-4 for stability (SAC can be sensitive)
         hidden_actor=(256, 256),
         hidden_critic=(1024, 1024, 1024),
         embedding_dim=16,  # NEW: Task embedding dimension (tunable!)
