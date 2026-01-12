@@ -57,3 +57,5 @@ checkpoints/
 Thumbs.db
 
 *.pt
+
+*.sif

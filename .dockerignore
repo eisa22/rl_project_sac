@@ -1,0 +1,63 @@
+# Docker build ignore file
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Logs
+logs/
+*.log
+wandb/
+.wandb_api_key
+
+# Models & Data
+models/
+checkpoints/
+experiment_results/
+data/
+datasets/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+
+# Singularity
+*.sif
+
+# Local test outputs
+results_local_test/
+logs_local_test/

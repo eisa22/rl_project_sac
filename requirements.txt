@@ -1,0 +1,25 @@
+# Core RL/ML
+torch==2.1.0
+torchvision==0.16.0
+torchaudio==2.1.0
+numpy==1.24.3
+scipy==1.11.1
+
+# Environments
+gymnasium==1.2.3
+metaworld==3.0.0
+dm-control==1.0.14
+
+# Logging & Monitoring
+wandb==0.15.8
+tensorboard==2.14.0
+
+# Utilities
+tqdm==4.66.1
+pyyaml==6.0
+tyro==0.8.3
+
+# Development
+black==23.9.1
+flake8==6.1.0
+pytest==7.4.2
