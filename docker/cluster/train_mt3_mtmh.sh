@@ -73,9 +73,9 @@ apptainer exec --nv \
         # Export W&B settings
         export WANDB_MODE='${WANDB_MODE}'
         
-        # Run training
+        # Run training with ARS & Periodic Resets
         python train_mt3_mtmh.py \
-            --run_name mt3_mtmh_highexplore_seed${SEED} \
+            --run_name mt3_mtmh_ars_reset_seed${SEED} \
             --total_steps 6000000 \
             --seed ${SEED} \
             --lr 1e-3 \
@@ -87,7 +87,15 @@ apptainer exec --nv \
             --head_hidden_actor 256 \
             --trunk_hidden_critic 1024,1024 \
             --head_hidden_critic 512,512 \
-            --reward_scale 5.0
+            --reward_scale 1.0 \
+            --ars_enable \
+            --pick_place_base_scale 100.0 \
+            --ars_update_freq 50000 \
+            --ars_bootstrap_steps 10000 \
+            --ars_min_scale 1.0 \
+            --ars_max_scale 200.0 \
+            --reset_enable \
+            --reset_every 2000000
     "
 
 EXIT_CODE=$?

@@ -7,6 +7,7 @@ Based on MTRL winner architecture.
 
 import argparse
 import os
+import copy
 import numpy as np
 import torch
 import gymnasium as gym
@@ -26,6 +27,22 @@ def main():
     parser.add_argument("--batch_size", type=int, default=500)
     parser.add_argument("--tau", type=float, default=0.005)
     parser.add_argument("--reward_scale", type=float, default=1.0)
+    parser.add_argument("--pick_place_base_scale", type=float, default=1.0,
+                        help="Optional initial multiplier for pick-place rewards")
+    parser.add_argument("--ars_enable", action="store_true",
+                        help="Enable adaptive reward scaling per task")
+    parser.add_argument("--ars_update_freq", type=int, default=50_000,
+                        help="How often (steps) to recompute ARS scales")
+    parser.add_argument("--ars_bootstrap_steps", type=int, default=10_000,
+                        help="Start ARS only after this many steps (for buffer stats)")
+    parser.add_argument("--ars_min_scale", type=float, default=1.0,
+                        help="Lower clamp for ARS scales")
+    parser.add_argument("--ars_max_scale", type=float, default=200.0,
+                        help="Upper clamp for ARS scales")
+    parser.add_argument("--reset_enable", action="store_true",
+                        help="Periodically reset actor/critic weights (buffer retained)")
+    parser.add_argument("--reset_every", type=int, default=5_000_000,
+                        help="Steps between resets if enabled")
     
     # Architecture config
     parser.add_argument("--trunk_hidden_actor", type=str, default="256,256",
@@ -67,6 +84,14 @@ def main():
         "head_hidden_actor": head_hidden_actor,
         "trunk_hidden_critic": trunk_hidden_critic,
         "head_hidden_critic": head_hidden_critic,
+        "ars_enable": args.ars_enable,
+        "ars_update_freq": args.ars_update_freq,
+        "ars_bootstrap_steps": args.ars_bootstrap_steps,
+        "ars_min_scale": args.ars_min_scale,
+        "ars_max_scale": args.ars_max_scale,
+        "pick_place_base_scale": args.pick_place_base_scale,
+        "reset_enable": args.reset_enable,
+        "reset_every": args.reset_every,
     }
     
     wandb.init(project="Robot_learning_2025", name=args.run_name, config=sac_config)
@@ -131,6 +156,30 @@ def main():
         target_entropy=None,
         buffer_size_per_task=sac_config["buffer_size"],
     )
+
+    # Save initial weights for periodic resets (actor/critic/target/log_alphas)
+    initial_actor_state = copy.deepcopy(agent.actor.state_dict())
+    initial_critic_state = copy.deepcopy(agent.critic.state_dict())
+    initial_log_alphas = agent.log_alphas.detach().cpu().clone()
+
+    def reset_agent_weights():
+        agent.actor.load_state_dict(initial_actor_state)
+        agent.critic.load_state_dict(initial_critic_state)
+        agent.critic_target.load_state_dict(agent.critic.state_dict())
+        with torch.no_grad():
+            agent.log_alphas.copy_(initial_log_alphas.to(agent.log_alphas.device))
+        agent.actor_optimizer = torch.optim.Adam(agent.actor.parameters(), lr=sac_config["learning_rate"])
+        agent.critic_optimizer = torch.optim.Adam(agent.critic.parameters(), lr=sac_config["learning_rate"])
+        agent.alpha_optimizer = torch.optim.Adam([agent.log_alphas], lr=sac_config["alpha_lr"])
+        print("[Reset] Actor/Critic/Alpha weights reset; buffer retained")
+
+    # ARS state
+    ars_scales = np.ones(num_tasks, dtype=np.float32)
+    # Optional initial boost for pick-place
+    pick_place_tid = TASK_NAMES.index('pick-place-v3')
+    ars_scales[pick_place_tid] *= args.pick_place_base_scale
+    next_ars_update = args.ars_bootstrap_steps if args.ars_enable else np.inf
+    next_reset_step = args.reset_every if args.reset_enable else np.inf
     
     print("✓ MTMH-SAC Agent initialized\n")
     print("🚀 Starting MT3 training...\n")
@@ -178,8 +227,9 @@ def main():
                 next_obs, reward, terminated, truncated, info = envs[task_id].step(action)
                 done = bool(terminated or truncated)
                 
-                # Scale reward and add to buffer
-                scaled_reward = reward * args.reward_scale
+                # Adaptive reward scaling per task
+                task_scale = ars_scales[task_id] if args.ars_enable else 1.0
+                scaled_reward = reward * args.reward_scale * task_scale
                 agent.add_experience(obs, action, scaled_reward, next_obs, done, task_id)
                 
                 # Update state
@@ -220,6 +270,37 @@ def main():
                 
                 step += 1
                 pbar.update(1)
+
+                # ARS update (based on replay buffer means)
+                if args.ars_enable and step >= next_ars_update:
+                    buf = agent.replay_buffer.buffers
+                    means = []
+                    for tid in range(num_tasks):
+                        size = buf[tid]['size']
+                        if size == 0:
+                            means.append(None)
+                        else:
+                            means.append(float(buf[tid]['rews'][:size].mean()))
+                    valid_means = [m for m in means if m is not None and m != 0.0]
+                    if valid_means:
+                        max_mean = max(abs(m) for m in valid_means)
+                        eps = 1e-6
+                        new_scales = []
+                        for tid, m in enumerate(means):
+                            if m is None or abs(m) < eps:
+                                new_scales.append(ars_scales[tid])
+                            else:
+                                raw = max_mean / abs(m)
+                                raw = np.clip(raw, args.ars_min_scale, args.ars_max_scale)
+                                new_scales.append(raw)
+                        ars_scales = np.array(new_scales, dtype=np.float32)
+                        print(f"[ARS] step={step} scales={ars_scales}")
+                    next_ars_update += args.ars_update_freq
+
+                # Periodic reset of networks (keep buffer)
+                if args.reset_enable and step >= next_reset_step:
+                    reset_agent_weights()
+                    next_reset_step += args.reset_every
                 
                 # Logging
                 if step > 0 and step % args.log_freq == 0:
@@ -236,6 +317,7 @@ def main():
                                 f"train/{TASK_NAMES[tid]}/episode_length_100": mean_length,
                                 f"train/{TASK_NAMES[tid]}/total_episodes": task_episode_count[tid],
                                 f"train/{TASK_NAMES[tid]}/alpha": agent.get_alpha(tid),
+                                f"train/{TASK_NAMES[tid]}/ars_scale": float(ars_scales[tid]) if args.ars_enable else 1.0,
                                 "train/step": step,
                             }, step=step)
                     
