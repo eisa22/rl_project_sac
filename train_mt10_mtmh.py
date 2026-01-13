@@ -60,6 +60,8 @@ def main():
     parser.add_argument("--learning_starts", type=int, default=50_000)
     parser.add_argument("--eval_freq", type=int, default=50_000)
     parser.add_argument("--log_freq", type=int, default=10_000)
+    parser.add_argument("--update_every", type=int, default=1,
+                        help="Perform network update every N steps (GPU optimization)")
 
     args = parser.parse_args()
 
@@ -149,6 +151,11 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
+    # Enable cuDNN benchmarking for GPU optimization
+    if torch.cuda.is_available():
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cuda.matmul.allow_tf32 = True
+
     # Get dimensions from first env
     obs_dim = envs[0][0].observation_space.shape[0]
     act_dim = envs[0][0].action_space.shape[0]
@@ -233,65 +240,82 @@ def main():
         task_episode_successes.append([])
         task_episode_lengths.append([])
 
-    # Round-robin task and env sampling
+    # Vectorized training loop (GPU optimization)
     step = 0
+    total_envs = num_tasks * num_envs_per_task  # 80 environments for MT10
+
     with tqdm(total=args.total_steps, desc="Training", unit="step") as pbar:
         while step < args.total_steps:
+            # Collect all observations for batch inference
+            all_obs = []
+            all_task_ids = []
+            env_indices = []  # Track which (task_id, env_idx) each obs belongs to
+
             for task_id in range(num_tasks):
                 for env_idx in range(num_envs_per_task):
-                    if step >= args.total_steps:
-                        break
+                    all_obs.append(task_env_obs[task_id][env_idx])
+                    all_task_ids.append(task_id)
+                    env_indices.append((task_id, env_idx))
 
-                    obs = task_env_obs[task_id][env_idx]
+            # Batch action selection (1 GPU call instead of 80!)
+            if step < sac_config["learning_starts"]:
+                # Random actions during warmup
+                all_actions = np.array([envs[tid][eidx].action_space.sample()
+                                       for tid, eidx in env_indices])
+            else:
+                # Batch inference (GPU optimization)
+                all_actions = agent.act_batch(np.array(all_obs), np.array(all_task_ids), deterministic=False)
 
-                    # Select action
-                    if step < sac_config["learning_starts"]:
-                        action = envs[task_id][env_idx].action_space.sample()
-                    else:
-                        action = agent.act(obs, task_id=task_id, deterministic=False)
+            # Step all environments and collect transitions
+            for idx, (task_id, env_idx) in enumerate(env_indices):
+                if step >= args.total_steps:
+                    break
 
-                    # Step environment
-                    next_obs, reward, terminated, truncated, info = envs[task_id][env_idx].step(action)
-                    done = bool(terminated or truncated)
+                obs = all_obs[idx]
+                action = all_actions[idx]
 
-                    # Adaptive reward scaling per task
-                    task_scale = ars_scales[task_id] if args.ars_enable else 1.0
-                    scaled_reward = reward * args.reward_scale * task_scale
-                    agent.add_experience(obs, action, scaled_reward, next_obs, done, task_id)
+                # Step environment
+                next_obs, reward, terminated, truncated, info = envs[task_id][env_idx].step(action)
+                done = bool(terminated or truncated)
 
-                    # Update state
-                    task_env_obs[task_id][env_idx] = next_obs
-                    task_env_episode_reward[task_id][env_idx] += reward
-                    task_env_episode_length[task_id][env_idx] += 1
+                # Adaptive reward scaling per task
+                task_scale = ars_scales[task_id] if args.ars_enable else 1.0
+                scaled_reward = reward * args.reward_scale * task_scale
+                agent.add_experience(obs, action, scaled_reward, next_obs, done, task_id)
 
-                    # Update networks
-                    if step >= sac_config["learning_starts"]:
-                        losses = agent.update(batch_size=sac_config["batch_size"])
-                        if step % 5000 == 0:
-                            wandb.log({
-                                "train/q1_loss": losses.get("q1_loss", 0.0),
-                                "train/q2_loss": losses.get("q2_loss", 0.0),
-                                "train/q_loss": losses.get("q_loss", 0.0),
-                                "train/actor_loss": losses.get("actor_loss", 0.0),
-                                "train/alpha": losses.get("alpha", 0.0),
-                                "train/alpha_loss": losses.get("alpha_loss", 0.0),
-                                "train/step": step,
-                            }, step=step)
+                # Update state
+                task_env_obs[task_id][env_idx] = next_obs
+                task_env_episode_reward[task_id][env_idx] += reward
+                task_env_episode_length[task_id][env_idx] += 1
 
-                    # Handle episode end
-                    if done:
-                        task_episode_count[task_id] += 1
-                        task_episode_rewards[task_id].append(task_env_episode_reward[task_id][env_idx])
-                        task_episode_successes[task_id].append(info.get("success", False))
-                        task_episode_lengths[task_id].append(task_env_episode_length[task_id][env_idx])
+                # Update networks (with reduced frequency for GPU efficiency)
+                if step >= sac_config["learning_starts"] and step % args.update_every == 0:
+                    losses = agent.update(batch_size=sac_config["batch_size"])
+                    if step % 5000 == 0:
+                        wandb.log({
+                            "train/q1_loss": losses.get("q1_loss", 0.0),
+                            "train/q2_loss": losses.get("q2_loss", 0.0),
+                            "train/q_loss": losses.get("q_loss", 0.0),
+                            "train/actor_loss": losses.get("actor_loss", 0.0),
+                            "train/alpha": losses.get("alpha", 0.0),
+                            "train/alpha_loss": losses.get("alpha_loss", 0.0),
+                            "train/step": step,
+                        }, step=step)
 
-                        reset_out = envs[task_id][env_idx].reset()
-                        task_env_obs[task_id][env_idx] = reset_out[0] if isinstance(reset_out, tuple) else reset_out
-                        task_env_episode_reward[task_id][env_idx] = 0.0
-                        task_env_episode_length[task_id][env_idx] = 0
+                # Handle episode end
+                if done:
+                    task_episode_count[task_id] += 1
+                    task_episode_rewards[task_id].append(task_env_episode_reward[task_id][env_idx])
+                    task_episode_successes[task_id].append(info.get("success", False))
+                    task_episode_lengths[task_id].append(task_env_episode_length[task_id][env_idx])
 
-                    step += 1
-                    pbar.update(1)
+                    reset_out = envs[task_id][env_idx].reset()
+                    task_env_obs[task_id][env_idx] = reset_out[0] if isinstance(reset_out, tuple) else reset_out
+                    task_env_episode_reward[task_id][env_idx] = 0.0
+                    task_env_episode_length[task_id][env_idx] = 0
+
+                step += 1
+                pbar.update(1)
 
                 if step >= args.total_steps:
                     break

@@ -76,14 +76,15 @@ apptainer exec --nv \
         
         # Run training with ARS & Periodic Resets
         python train_mt3_mtmh.py \
-            --run_name mt3_mtmh_ars_params_v3_seed${SEED} \
+            --run_name mt3_mtmh_gpu_optimized_seed${SEED} \
             --total_steps 20000000 \
             --seed ${SEED} \
             --lr 3e-4 \
             --alpha_lr 3e-4 \
-            --batch_size 512 \
+            --batch_size 1024 \
             --tau 0.005 \
             --learning_starts 50000 \
+            --update_every 5 \
             --trunk_hidden_actor 512,512 \
             --head_hidden_actor 256 \
             --trunk_hidden_critic 1024,1024 \

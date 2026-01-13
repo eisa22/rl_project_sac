@@ -16,6 +16,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
+from torch.amp import autocast, GradScaler
 from collections import defaultdict
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -391,6 +392,10 @@ class MTMHSACAgent:
         self.replay_buffer = PerTaskReplayBuffer(
             obs_dim, act_dim, num_tasks, buffer_size_per_task
         )
+
+        # Mixed Precision Training (GPU optimization)
+        self.use_amp = torch.cuda.is_available()
+        self.scaler = GradScaler('cuda') if self.use_amp else None
     
     def get_alpha(self, task_id):
         """Get alpha for specific task."""
@@ -400,8 +405,28 @@ class MTMHSACAgent:
             return self.log_alphas[task_id].exp()
     
     def act(self, obs, task_id, deterministic=False):
-        """Get action for environment interaction."""
+        """Get action for environment interaction (single observation)."""
         return self.actor.act(obs, task_id, deterministic)
+
+    def act_batch(self, obs_batch, task_ids, deterministic=False):
+        """
+        Batch action inference for multiple environments (GPU optimization).
+
+        Args:
+            obs_batch: numpy array [num_envs, obs_dim]
+            task_ids: numpy array [num_envs] - task IDs for each observation
+            deterministic: bool - if True, return mean actions
+
+        Returns:
+            actions: numpy array [num_envs, act_dim]
+        """
+        obs_t = torch.as_tensor(obs_batch, dtype=torch.float32, device=device)
+        task_ids_t = torch.as_tensor(task_ids, dtype=torch.long, device=device)
+
+        with torch.no_grad():
+            actions, _ = self.actor.forward(obs_t, task_ids_t, deterministic=deterministic, with_logprob=False)
+
+        return actions.cpu().numpy()
     
     def add_experience(self, obs, action, reward, next_obs, done, task_id):
         """Add transition to replay buffer."""
@@ -409,71 +434,104 @@ class MTMHSACAgent:
     
     def update(self, batch_size=256):
         """
-        Perform one SAC update step.
-        
+        Perform one SAC update step with Mixed Precision Training.
+
         Returns dict of losses for logging.
         """
         batch = self.replay_buffer.sample_batch(batch_size)
         if batch is None:
             return {}
-        
+
         obs = batch['obs']
         next_obs = batch['next_obs']
         acts = batch['acts']
         rews = batch['rews']
         done = batch['done']
         task_ids = batch['task_ids']
-        
+
         # ========== Critic Update ==========
+        # Compute target (no_grad, so no autocast needed)
         with torch.no_grad():
             # Sample next actions from current policy
             next_acts, next_log_probs = self.actor(next_obs, task_ids, deterministic=False, with_logprob=True)
-            
+
             # Compute target Q-values (min of twin Q)
             q1_target, q2_target = self.critic_target(next_obs, next_acts, task_ids)
             q_target = torch.min(q1_target, q2_target)
-            
+
             # Bellman backup (subtract entropy bonus, per-task alpha!)
             alphas = self.get_alpha(task_ids)
             backup = rews + self.gamma * (1 - done) * (q_target - alphas * next_log_probs.squeeze(-1))
             backup = torch.clamp(backup, -1e3, 1e3)
-        
-        # Current Q estimates
-        q1, q2 = self.critic(obs, acts, task_ids)
-        
-        # MSE loss for both Q-networks
-        q1_loss = F.mse_loss(q1, backup)
-        q2_loss = F.mse_loss(q2, backup)
-        q_loss = q1_loss + q2_loss
-        
-        # Optimize critic
+
+        # Forward pass with mixed precision
         self.critic_optimizer.zero_grad()
-        q_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=10.0)
-        self.critic_optimizer.step()
+
+        if self.use_amp:
+            with autocast('cuda'):
+                # Current Q estimates
+                q1, q2 = self.critic(obs, acts, task_ids)
+
+                # MSE loss for both Q-networks (loss computed in float32 automatically)
+                q1_loss = F.mse_loss(q1, backup)
+                q2_loss = F.mse_loss(q2, backup)
+                q_loss = q1_loss + q2_loss
+
+            # Backward with gradient scaling
+            self.scaler.scale(q_loss).backward()
+            self.scaler.unscale_(self.critic_optimizer)
+            torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=10.0)
+            self.scaler.step(self.critic_optimizer)
+            self.scaler.update()
+        else:
+            # Standard float32 training (fallback)
+            q1, q2 = self.critic(obs, acts, task_ids)
+            q1_loss = F.mse_loss(q1, backup)
+            q2_loss = F.mse_loss(q2, backup)
+            q_loss = q1_loss + q2_loss
+
+            q_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=10.0)
+            self.critic_optimizer.step()
         
         # ========== Actor Update ==========
         # Freeze critic so we don't update it here
         for p in self.critic.parameters():
             p.requires_grad = False
-        
-        # Sample actions from current policy
-        new_acts, log_probs = self.actor(obs, task_ids, deterministic=False, with_logprob=True)
-        
-        # Compute Q-values for new actions
-        q1_new, q2_new = self.critic(obs, new_acts, task_ids)
-        q_new = torch.min(q1_new, q2_new)
-        
-        # Actor loss: maximize Q(s,a) - alpha * log_prob (per-task alpha!)
-        alphas = self.get_alpha(task_ids)
-        actor_loss = (alphas.detach() * log_probs.squeeze(-1) - q_new).mean()
-        
-        # Optimize actor
+
         self.actor_optimizer.zero_grad()
-        actor_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=10.0)
-        self.actor_optimizer.step()
-        
+
+        if self.use_amp:
+            with autocast('cuda'):
+                # Sample actions from current policy
+                new_acts, log_probs = self.actor(obs, task_ids, deterministic=False, with_logprob=True)
+
+                # Compute Q-values for new actions
+                q1_new, q2_new = self.critic(obs, new_acts, task_ids)
+                q_new = torch.min(q1_new, q2_new)
+
+                # Actor loss: maximize Q(s,a) - alpha * log_prob (per-task alpha!)
+                alphas = self.get_alpha(task_ids)
+                actor_loss = (alphas.detach() * log_probs.squeeze(-1) - q_new).mean()
+
+            # Backward with gradient scaling
+            self.scaler.scale(actor_loss).backward()
+            self.scaler.unscale_(self.actor_optimizer)
+            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=10.0)
+            self.scaler.step(self.actor_optimizer)
+            self.scaler.update()
+        else:
+            # Standard float32 training
+            new_acts, log_probs = self.actor(obs, task_ids, deterministic=False, with_logprob=True)
+            q1_new, q2_new = self.critic(obs, new_acts, task_ids)
+            q_new = torch.min(q1_new, q2_new)
+            alphas = self.get_alpha(task_ids)
+            actor_loss = (alphas.detach() * log_probs.squeeze(-1) - q_new).mean()
+
+            actor_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=10.0)
+            self.actor_optimizer.step()
+
         # Unfreeze critic
         for p in self.critic.parameters():
             p.requires_grad = True
