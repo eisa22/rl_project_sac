@@ -243,11 +243,11 @@ class MultiHeadActor(nn.Module):
                 # Compute log prob with stable tanh correction
                 log_prob = pi_distribution.log_prob(pi_action).sum(axis=-1, keepdim=True)
                 log_prob -= (2 * (np.log(2) - pi_action - F.softplus(-2 * pi_action))).sum(axis=-1, keepdim=True)
-                log_probs[mask] = log_prob
+                log_probs[mask] = log_prob.to(log_probs.dtype)
             
             # Squash to action limits
             action = torch.tanh(pi_action) * self.act_limit
-            actions[mask] = action
+            actions[mask] = action.to(actions.dtype)
         
         return actions, log_probs
     
@@ -322,8 +322,8 @@ class MultiHeadCritic(nn.Module):
             mask = (task_id == tid)
             trunk_masked = trunk_out[mask]
             
-            q1_vals[mask] = self.q1_heads[tid](trunk_masked).squeeze(-1)
-            q2_vals[mask] = self.q2_heads[tid](trunk_masked).squeeze(-1)
+            q1_vals[mask] = self.q1_heads[tid](trunk_masked).squeeze(-1).to(q1_vals.dtype)
+            q2_vals[mask] = self.q2_heads[tid](trunk_masked).squeeze(-1).to(q2_vals.dtype)
         
         return q1_vals, q2_vals
 
