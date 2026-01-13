@@ -16,8 +16,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
-from torch.amp import autocast, GradScaler
 from collections import defaultdict
+
+# Mixed Precision Training - compatible with both old and new PyTorch versions
+try:
+    # PyTorch >= 2.0
+    from torch.amp import autocast, GradScaler
+    AMP_DEVICE = 'cuda'
+except ImportError:
+    # PyTorch < 2.0 (cluster compatibility)
+    from torch.cuda.amp import autocast, GradScaler
+    AMP_DEVICE = None  # old API doesn't need device parameter
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -395,7 +404,11 @@ class MTMHSACAgent:
 
         # Mixed Precision Training (GPU optimization)
         self.use_amp = torch.cuda.is_available()
-        self.scaler = GradScaler('cuda') if self.use_amp else None
+        if self.use_amp:
+            # Use device parameter only for PyTorch >= 2.0
+            self.scaler = GradScaler(AMP_DEVICE) if AMP_DEVICE else GradScaler()
+        else:
+            self.scaler = None
     
     def get_alpha(self, task_id):
         """Get alpha for specific task."""
@@ -468,7 +481,9 @@ class MTMHSACAgent:
         self.critic_optimizer.zero_grad()
 
         if self.use_amp:
-            with autocast('cuda'):
+            # Use device parameter only for PyTorch >= 2.0
+            autocast_ctx = autocast(AMP_DEVICE) if AMP_DEVICE else autocast()
+            with autocast_ctx:
                 # Current Q estimates
                 q1, q2 = self.critic(obs, acts, task_ids)
 
@@ -502,7 +517,9 @@ class MTMHSACAgent:
         self.actor_optimizer.zero_grad()
 
         if self.use_amp:
-            with autocast('cuda'):
+            # Use device parameter only for PyTorch >= 2.0
+            autocast_ctx = autocast(AMP_DEVICE) if AMP_DEVICE else autocast()
+            with autocast_ctx:
                 # Sample actions from current policy
                 new_acts, log_probs = self.actor(obs, task_ids, deterministic=False, with_logprob=True)
 

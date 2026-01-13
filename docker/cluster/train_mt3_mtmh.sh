@@ -9,7 +9,7 @@
 #SBATCH --gres=gpu:a40:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
-#SBATCH --time=30:00:00
+#SBATCH --time=60:00:00
 #SBATCH --output=/home/%u/metaworld_project/logs/mt3_mtmh_%j.log
 #SBATCH --error=/home/%u/metaworld_project/logs/mt3_mtmh_%j.err
 
