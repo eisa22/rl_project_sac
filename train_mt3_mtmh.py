@@ -43,6 +43,8 @@ def main():
                         help="Periodically reset actor/critic weights (buffer retained)")
     parser.add_argument("--reset_every", type=int, default=5_000_000,
                         help="Steps between resets if enabled")
+    parser.add_argument("--num_envs_per_task", type=int, default=1,
+                        help="Number of parallel environments per task")
     
     # Architecture config
     parser.add_argument("--trunk_hidden_actor", type=str, default="256,256",
@@ -92,9 +94,16 @@ def main():
         "pick_place_base_scale": args.pick_place_base_scale,
         "reset_enable": args.reset_enable,
         "reset_every": args.reset_every,
+        "num_envs_per_task": args.num_envs_per_task,
     }
     
-    wandb.init(project="Robot_learning_2025", name=args.run_name, config=sac_config)
+    # Log to team Robot_learning_2025, project Robot_learning_2025
+    wandb.init(
+        entity="Robot_learning_2025",
+        project="Robot_learning_2025",
+        name=args.run_name,
+        config=sac_config
+    )
     
     os.makedirs("./models_mtmh", exist_ok=True)
     model_dir = f"./models_mtmh/{args.run_name}"
@@ -114,24 +123,28 @@ def main():
     import metaworld
     TASK_NAMES = ['reach-v3', 'push-v3', 'pick-place-v3']
     num_tasks = len(TASK_NAMES)
+    num_envs_per_task = args.num_envs_per_task
     
-    # Create environments
+    # Create parallel environments: envs[task_id][env_idx]
     envs = []
     tasks = []
     for task_name in TASK_NAMES:
-        ml1 = metaworld.ML1(task_name, seed=args.seed)
-        env = ml1.train_classes[task_name]()
-        env.set_task(ml1.train_tasks[0])
-        envs.append(env)
+        task_envs = []
+        for env_idx in range(num_envs_per_task):
+            ml1 = metaworld.ML1(task_name, seed=args.seed + env_idx)
+            env = ml1.train_classes[task_name]()
+            env.set_task(ml1.train_tasks[0])
+            task_envs.append(env)
+        envs.append(task_envs)
         tasks.append(task_name)
     
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     
     # Get dimensions from first env
-    obs_dim = envs[0].observation_space.shape[0]
-    act_dim = envs[0].action_space.shape[0]
-    act_limit = float(envs[0].action_space.high[0])
+    obs_dim = envs[0][0].observation_space.shape[0]
+    act_dim = envs[0][0].action_space.shape[0]
+    act_limit = float(envs[0][0].action_space.high[0])
     
     print(f"\nEnvironment:")
     print(f"  obs_dim = {obs_dim}")
@@ -184,92 +197,105 @@ def main():
     print("✓ MTMH-SAC Agent initialized\n")
     print("🚀 Starting MT3 training...\n")
     
-    # Training state per task
-    task_obs = []
-    task_episode_reward = []
-    task_episode_length = []
+    # Training state per task and env: [task_id][env_idx]
+    task_env_obs = []
+    task_env_episode_reward = []
+    task_env_episode_length = []
     task_episode_count = []
     task_episode_rewards = []
     task_episode_successes = []
     task_episode_lengths = []
     
     for task_id in range(num_tasks):
-        reset_out = envs[task_id].reset()
-        if isinstance(reset_out, tuple):
-            obs, _ = reset_out
-        else:
-            obs = reset_out
-        task_obs.append(obs)
-        task_episode_reward.append(0.0)
-        task_episode_length.append(0)
+        env_obs_list = []
+        env_reward_list = []
+        env_length_list = []
+        
+        for env_idx in range(num_envs_per_task):
+            reset_out = envs[task_id][env_idx].reset()
+            if isinstance(reset_out, tuple):
+                obs, _ = reset_out
+            else:
+                obs = reset_out
+            env_obs_list.append(obs)
+            env_reward_list.append(0.0)
+            env_length_list.append(0)
+        
+        task_env_obs.append(env_obs_list)
+        task_env_episode_reward.append(env_reward_list)
+        task_env_episode_length.append(env_length_list)
         task_episode_count.append(0)
         task_episode_rewards.append([])
         task_episode_successes.append([])
         task_episode_lengths.append([])
     
-    # Round-robin task sampling
+    # Round-robin task and env sampling
     step = 0
     with tqdm(total=args.total_steps, desc="Training", unit="step") as pbar:
         while step < args.total_steps:
             for task_id in range(num_tasks):
+                for env_idx in range(num_envs_per_task):
+                    if step >= args.total_steps:
+                        break
+                    
+                    obs = task_env_obs[task_id][env_idx]
+                    
+                    # Select action
+                    if step < sac_config["learning_starts"]:
+                        action = envs[task_id][env_idx].action_space.sample()
+                    else:
+                        action = agent.act(obs, task_id=task_id, deterministic=False)
+                    
+                    # Step environment
+                    next_obs, reward, terminated, truncated, info = envs[task_id][env_idx].step(action)
+                    done = bool(terminated or truncated)
+                    
+                    # Adaptive reward scaling per task
+                    task_scale = ars_scales[task_id] if args.ars_enable else 1.0
+                    scaled_reward = reward * args.reward_scale * task_scale
+                    agent.add_experience(obs, action, scaled_reward, next_obs, done, task_id)
+                    
+                    # Update state
+                    task_env_obs[task_id][env_idx] = next_obs
+                    task_env_episode_reward[task_id][env_idx] += reward
+                    task_env_episode_length[task_id][env_idx] += 1
+                    
+                    # Update networks
+                    if step >= sac_config["learning_starts"]:
+                        losses = agent.update(batch_size=sac_config["batch_size"])
+                        
+                        if step % 5000 == 0:
+                            wandb.log({
+                                "train/q1_loss": losses.get("q1_loss", 0.0),
+                                "train/q2_loss": losses.get("q2_loss", 0.0),
+                                "train/q_loss": losses.get("q_loss", 0.0),
+                                "train/actor_loss": losses.get("actor_loss", 0.0),
+                                "train/alpha": losses.get("alpha", 0.0),
+                                "train/alpha_loss": losses.get("alpha_loss", 0.0),
+                                "train/step": step,
+                            }, step=step)
+                    
+                    # Handle episode end
+                    if done:
+                        task_episode_count[task_id] += 1
+                        task_episode_rewards[task_id].append(task_env_episode_reward[task_id][env_idx])
+                        task_episode_successes[task_id].append(info.get("success", False))
+                        task_episode_lengths[task_id].append(task_env_episode_length[task_id][env_idx])
+                        
+                        # Reset
+                        reset_out = envs[task_id][env_idx].reset()
+                        if isinstance(reset_out, tuple):
+                            task_env_obs[task_id][env_idx], _ = reset_out
+                        else:
+                            task_env_obs[task_id][env_idx] = reset_out
+                        task_env_episode_reward[task_id][env_idx] = 0.0
+                        task_env_episode_length[task_id][env_idx] = 0
+                    
+                    step += 1
+                    pbar.update(1)
+                
                 if step >= args.total_steps:
                     break
-                
-                obs = task_obs[task_id]
-                
-                # Select action
-                if step < sac_config["learning_starts"]:
-                    action = envs[task_id].action_space.sample()
-                else:
-                    action = agent.act(obs, task_id=task_id, deterministic=False)
-                
-                # Step environment
-                next_obs, reward, terminated, truncated, info = envs[task_id].step(action)
-                done = bool(terminated or truncated)
-                
-                # Adaptive reward scaling per task
-                task_scale = ars_scales[task_id] if args.ars_enable else 1.0
-                scaled_reward = reward * args.reward_scale * task_scale
-                agent.add_experience(obs, action, scaled_reward, next_obs, done, task_id)
-                
-                # Update state
-                task_obs[task_id] = next_obs
-                task_episode_reward[task_id] += reward
-                task_episode_length[task_id] += 1
-                
-                # Update networks
-                if step >= sac_config["learning_starts"]:
-                    losses = agent.update(batch_size=sac_config["batch_size"])
-                    
-                    if step % 5000 == 0:
-                        wandb.log({
-                            "train/q1_loss": losses.get("q1_loss", 0.0),
-                            "train/q2_loss": losses.get("q2_loss", 0.0),
-                            "train/q_loss": losses.get("q_loss", 0.0),
-                            "train/actor_loss": losses.get("actor_loss", 0.0),
-                            "train/alpha": losses.get("alpha", 0.0),
-                            "train/alpha_loss": losses.get("alpha_loss", 0.0),
-                            "train/step": step,
-                        }, step=step)
-                
-                # Handle episode end
-                if done:
-                    task_episode_count[task_id] += 1
-                    task_episode_rewards[task_id].append(task_episode_reward[task_id])
-                    task_episode_successes[task_id].append(info.get("success", False))
-                    task_episode_lengths[task_id].append(task_episode_length[task_id])
-                    
-                    # Reset
-                    reset_out = envs[task_id].reset()
-                    if isinstance(reset_out, tuple):
-                        task_obs[task_id], _ = reset_out
-                    else:
-                        task_obs[task_id] = reset_out
-                    task_episode_reward[task_id] = 0.0
-                    task_episode_length[task_id] = 0
-                
-                step += 1
-                pbar.update(1)
 
                 # ARS update (based on replay buffer means)
                 if args.ars_enable and step >= next_ars_update:
@@ -292,9 +318,12 @@ def main():
                             else:
                                 raw = max_mean / abs(m)
                                 raw = np.clip(raw, args.ars_min_scale, args.ars_max_scale)
+                                # KEEP pick-place base boost: multiply ARS scale with base
+                                if tid == pick_place_tid:
+                                    raw *= args.pick_place_base_scale
                                 new_scales.append(raw)
                         ars_scales = np.array(new_scales, dtype=np.float32)
-                        print(f"[ARS] step={step} scales={ars_scales}")
+                        print(f"[ARS] step={step} scales={ars_scales} means={means}")
                     next_ars_update += args.ars_update_freq
 
                 # Periodic reset of networks (keep buffer)
@@ -353,8 +382,9 @@ def main():
     torch.save(save_dict, final_path)
     
     wandb.finish()
-    for env in envs:
-        env.close()
+    for task_envs in envs:
+        for env in task_envs:
+            env.close()
     
     print("\n" + "=" * 70)
     print("TRAINING COMPLETED")

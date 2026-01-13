@@ -78,19 +78,28 @@ apptainer exec --nv \
         
         # Run training
         python train_mt10_mtmh.py \
-            --run_name mt10_mtmh_seed${SEED} \
-            --total_steps 10000000 \
+            --run_name mt10_mtmh_params_v3_seed${SEED} \
+            --total_steps 20000000 \
             --seed ${SEED} \
-            --lr 1e-3 \
-            --alpha_lr 1e-3 \
-            --batch_size 256 \
-            --tau 0.01 \
-            --learning_starts 10000 \
+            --lr 3e-4 \
+            --alpha_lr 3e-4 \
+            --batch_size 512 \
+            --tau 0.005 \
+            --learning_starts 50000 \
             --trunk_hidden_actor 512,512 \
             --head_hidden_actor 256 \
             --trunk_hidden_critic 1024,1024 \
             --head_hidden_critic 512,512 \
-            --reward_scale 5.0
+            --reward_scale 1.0 \
+            --num_envs_per_task 8 \
+            --ars_enable \
+            --pick_place_base_scale 100.0 \
+            --ars_update_freq 50000 \
+            --ars_bootstrap_steps 10000 \
+            --ars_min_scale 1.0 \
+            --ars_max_scale 250.0 \
+            --reset_enable \
+            --reset_every 3000000
     "
 
 EXIT_CODE=$?
