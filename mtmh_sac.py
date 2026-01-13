@@ -214,9 +214,10 @@ class MultiHeadActor(nn.Module):
         
         # Batch processing: group by task_id
         unique_tasks = torch.unique(task_id)
-        
-        actions = torch.zeros((obs.shape[0], self.task_heads[0]['mu'].out_features), device=obs.device)
-        log_probs = torch.zeros((obs.shape[0], 1), device=obs.device) if with_logprob else None
+
+        # Use same dtype as trunk_out (important for Mixed Precision Training)
+        actions = torch.zeros((obs.shape[0], self.task_heads[0]['mu'].out_features), device=obs.device, dtype=trunk_out.dtype)
+        log_probs = torch.zeros((obs.shape[0], 1), device=obs.device, dtype=trunk_out.dtype) if with_logprob else None
         
         for tid in unique_tasks:
             mask = (task_id == tid)
@@ -312,9 +313,10 @@ class MultiHeadCritic(nn.Module):
         
         # Batch processing: group by task_id
         unique_tasks = torch.unique(task_id)
-        
-        q1_vals = torch.zeros(obs.shape[0], device=obs.device)
-        q2_vals = torch.zeros(obs.shape[0], device=obs.device)
+
+        # Use same dtype as trunk_out (important for Mixed Precision Training)
+        q1_vals = torch.zeros(obs.shape[0], device=obs.device, dtype=trunk_out.dtype)
+        q2_vals = torch.zeros(obs.shape[0], device=obs.device, dtype=trunk_out.dtype)
         
         for tid in unique_tasks:
             mask = (task_id == tid)

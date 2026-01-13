@@ -84,7 +84,7 @@ chmod +x docker/cluster/*.sh
 
 # Submit SLURM job
 echo "Submitting SLURM job with seed ${SEED}..."
-sbatch docker/cluster/train_mt3_mtmh.sh ${SEED}
+sbatch docker/cluster/train_mt10_mtmh.sh ${SEED}
 
 # Wait a moment for job submission
 sleep 2
