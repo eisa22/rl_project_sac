@@ -76,7 +76,7 @@ apptainer exec --nv \
         
         # Run training with ARS & Periodic Resets
         python train_mt3_mtmh.py \
-            --run_name mt3_mtmh_gpu_optimized_seed${SEED} \
+            --run_name mt3_mtmh_gpu_optimized_params_v4_seed${SEED} \
             --total_steps 20000000 \
             --seed ${SEED} \
             --lr 3e-4 \
@@ -84,21 +84,21 @@ apptainer exec --nv \
             --batch_size 1024 \
             --tau 0.005 \
             --learning_starts 50000 \
-            --update_every 5 \
+            --update_every 1 \
+            --checkpoint_every 1500000 \
             --trunk_hidden_actor 512,512 \
             --head_hidden_actor 256 \
-            --trunk_hidden_critic 1024,1024 \
+            --trunk_hidden_critic 1024,1024,1024 \
             --head_hidden_critic 512,512 \
-            --reward_scale 1.0 \
             --num_envs_per_task 8 \
             --ars_enable \
             --pick_place_base_scale 100.0 \
             --ars_update_freq 50000 \
-            --ars_bootstrap_steps 10000 \
+            --ars_bootstrap_steps 50000 \
             --ars_min_scale 1.0 \
             --ars_max_scale 250.0 \
             --reset_enable \
-            --reset_every 2000000
+            --reset_every 5000000
     "
 
 EXIT_CODE=$?

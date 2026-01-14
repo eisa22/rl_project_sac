@@ -45,6 +45,8 @@ def main():
                         help="Steps between resets if enabled")
     parser.add_argument("--num_envs_per_task", type=int, default=8,
                         help="Number of parallel environments per task")
+    parser.add_argument("--checkpoint_every", type=int, default=0,
+                        help="If >0, save checkpoint every N steps (per-task heads + trunks)")
 
     # Architecture config
     parser.add_argument("--trunk_hidden_actor", type=str, default="512,512",
@@ -201,6 +203,26 @@ def main():
         agent.critic_optimizer = torch.optim.Adam(agent.critic.parameters(), lr=sac_config["learning_rate"])
         agent.alpha_optimizer = torch.optim.Adam([agent.log_alphas], lr=sac_config["alpha_lr"])
         print("[Reset] Actor/Critic/Alpha weights reset; buffer retained")
+
+    def save_checkpoint(path):
+        save_dict = {
+            "actor_trunk": agent.actor.trunk.state_dict(),
+            "critic_trunk": agent.critic.trunk.state_dict(),
+            "critic_target_trunk": agent.critic_target.trunk.state_dict(),
+            "log_alphas": agent.log_alphas.detach().cpu(),
+            "config": sac_config,
+            "step": step,
+        }
+
+        for tid in range(num_tasks):
+            save_dict[f"actor_head_{tid}"] = agent.actor.task_heads[tid].state_dict()
+            save_dict[f"critic_q1_head_{tid}"] = agent.critic.q1_heads[tid].state_dict()
+            save_dict[f"critic_q2_head_{tid}"] = agent.critic.q2_heads[tid].state_dict()
+            save_dict[f"critic_target_q1_head_{tid}"] = agent.critic_target.q1_heads[tid].state_dict()
+            save_dict[f"critic_target_q2_head_{tid}"] = agent.critic_target.q2_heads[tid].state_dict()
+
+        torch.save(save_dict, path)
+        print(f"[Checkpoint] Saved to {path}")
 
     # ARS state
     ars_scales = np.ones(num_tasks, dtype=np.float32)
@@ -376,26 +398,15 @@ def main():
                             "train/step": step,
                         }, step=step)
 
+                # Periodic checkpointing
+                if args.checkpoint_every > 0 and step > 0 and step % args.checkpoint_every == 0:
+                    ckpt_path = f"{model_dir}/checkpoint_step{step}.pt"
+                    save_checkpoint(ckpt_path)
+
     # Save final model
     final_path = f"{model_dir}/final_model.pt"
     print(f"\n💾 Saving final model to: {final_path}")
-
-    save_dict = {
-        "actor_trunk": agent.actor.trunk.state_dict(),
-        "critic_trunk": agent.critic.trunk.state_dict(),
-        "critic_target_trunk": agent.critic_target.trunk.state_dict(),
-        "log_alphas": agent.log_alphas.detach().cpu(),
-        "config": sac_config,
-    }
-
-    for tid in range(num_tasks):
-        save_dict[f"actor_head_{tid}"] = agent.actor.task_heads[tid].state_dict()
-        save_dict[f"critic_q1_head_{tid}"] = agent.critic.q1_heads[tid].state_dict()
-        save_dict[f"critic_q2_head_{tid}"] = agent.critic.q2_heads[tid].state_dict()
-        save_dict[f"critic_target_q1_head_{tid}"] = agent.critic_target.q1_heads[tid].state_dict()
-        save_dict[f"critic_target_q2_head_{tid}"] = agent.critic_target.q2_heads[tid].state_dict()
-
-    torch.save(save_dict, final_path)
+    save_checkpoint(final_path)
 
     wandb.finish()
     for task_envs in envs:
