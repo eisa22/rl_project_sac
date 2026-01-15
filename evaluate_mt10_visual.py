@@ -137,9 +137,11 @@ def evaluate_task(actor, task_name, task_id, num_episodes=5, render=True, delay=
             
             obs = next_obs
             
-            # Rendering delay for visualization
-            if render and delay > 0:
-                time.sleep(delay)
+            # Explicit render call (required for MuJoCo to update display)
+            if render:
+                env.render()
+                if delay > 0:
+                    time.sleep(delay)
             
             if done:
                 break
@@ -186,11 +188,16 @@ def main():
                         help="Delay between steps for visualization (seconds)")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed")
+    parser.add_argument("--device", type=str, default=None,
+                        help="Device to use (cuda/cpu). Default: auto-detect")
     
     args = parser.parse_args()
     
-    # Setup
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # Setup device
+    if args.device:
+        device = args.device
+    else:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
     
     np.random.seed(args.seed)
