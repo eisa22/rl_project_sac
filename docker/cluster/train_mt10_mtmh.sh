@@ -7,9 +7,9 @@
 #SBATCH --job-name=mt10_mtmh_sac
 #SBATCH --partition=GPU-a40
 #SBATCH --gres=gpu:a40:1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
-#SBATCH --time=72:00:00
+#SBATCH --time=100:00:00
 #SBATCH --output=/home/%u/metaworld_project/logs/mt10_mtmh_%j.log
 #SBATCH --error=/home/%u/metaworld_project/logs/mt10_mtmh_%j.err
 
@@ -78,16 +78,16 @@ apptainer exec --nv \
         
         # Run training
         python train_mt10_mtmh.py \
-            --run_name mt10_mtmh_gpu_optimized_params_v4_seed${SEED} \
+            --run_name mt10_mtmh_gpu_optimized_params_v3_longtime_checkpoints_seed${SEED} \
             --total_steps 20000000 \
             --seed ${SEED} \
             --lr 3e-4 \
             --alpha_lr 3e-4 \
-            --batch_size 1024 \
+            --batch_size 2048 \
             --tau 0.005 \
             --learning_starts 50000 \
-            --update_every 1 \
-            --checkpoint_every 2000000 \
+            --update_every 5 \
+            --checkpoint_every 1000000 \
             --trunk_hidden_actor 512,512 \
             --head_hidden_actor 256 \
             --trunk_hidden_critic 1024,1024,1024 \
@@ -100,7 +100,7 @@ apptainer exec --nv \
             --ars_min_scale 1.0 \
             --ars_max_scale 250.0 \
             --reset_enable \
-            --reset_every 5000000
+            --reset_every 3000000
     "
 
 EXIT_CODE=$?

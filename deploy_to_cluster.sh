@@ -82,16 +82,22 @@ echo ""
 # Make scripts executable
 chmod +x docker/cluster/*.sh
 
-# Submit SLURM job
-echo "Submitting SLURM job with seed ${SEED}..."
-sbatch docker/cluster/train_mt10_mtmh.sh ${SEED}
+# Submit both MT3 and MT10 jobs
+# echo "Submitting MT3 training job with seed ${SEED}..."
+# MT3_JOB=\$(sbatch docker/cluster/train_mt3_mtmh.sh ${SEED} | awk '{print \$4}')
+# echo "MT3 Job ID: \$MT3_JOB"
 
-# Wait a moment for job submission
+echo ""
+echo "Submitting MT10 training job with seed ${SEED}..."
+MT10_JOB=\$(sbatch docker/cluster/train_mt10_mtmh.sh ${SEED} | awk '{print \$4}')
+echo "MT10 Job ID: \$MT10_JOB"
+
+# Wait a moment for jobs to appear in queue
 sleep 2
 
 # Show job status
 echo ""
-echo "Job submitted! Current queue status:"
+echo "Jobs submitted! Current queue status:"
 squeue -u ${CLUSTER_USER}
 
 ENDSSH
@@ -106,8 +112,13 @@ echo "=========================================="
 echo "✅ Deployment & Job Submission Complete!"
 echo "=========================================="
 echo ""
+echo "Submitted Jobs:"
+# echo "  - MT3:  Job \$MT3_JOB (3 tasks, 16 envs/task, batch 2048)"
+echo "  - MT10: Job \$MT10_JOB (10 tasks, 8 envs/task, batch 2048)"
+echo ""
 echo "Next steps:"
 echo "  1. Monitor: ssh ${CLUSTER_USER}@${CLUSTER_HOST} 'squeue -u \$USER'"
-echo "  2. Logs: ssh ${CLUSTER_HOST} 'cd ~/metaworld_project && tail -f logs/*.log'"
-echo "  3. WandB: https://wandb.ai/Robot_learning_2025/Robot_learning_2025"
+# echo "  2. MT3 logs:  ssh ${CLUSTER_HOST} 'tail -f ~/metaworld_project/logs/mt3_mtmh_*.log'"
+echo "  3. MT10 logs: ssh ${CLUSTER_HOST} 'tail -f ~/metaworld_project/logs/mt10_mtmh_*.log'"
+echo "  4. WandB: https://wandb.ai/Robot_learning_2025/Robot_learning_2025"
 echo ""

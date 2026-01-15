@@ -7,7 +7,7 @@
 #SBATCH --job-name=mt3_mtmh_sac
 #SBATCH --partition=GPU-a40
 #SBATCH --gres=gpu:a40:1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --time=72:00:00
 #SBATCH --output=/home/%u/metaworld_project/logs/mt3_mtmh_%j.log
@@ -76,21 +76,21 @@ apptainer exec --nv \
         
         # Run training with ARS & Periodic Resets
         python train_mt3_mtmh.py \
-            --run_name mt3_mtmh_gpu_optimized_params_v4_seed${SEED} \
+            --run_name mt3_mtmh_gpu_optimized_params_v5_fast_seed${SEED} \
             --total_steps 20000000 \
             --seed ${SEED} \
             --lr 3e-4 \
             --alpha_lr 3e-4 \
-            --batch_size 1024 \
+            --batch_size 2048 \
             --tau 0.005 \
-            --learning_starts 50000 \
+            --learning_starts 30000 \
             --update_every 1 \
             --checkpoint_every 1500000 \
             --trunk_hidden_actor 512,512 \
             --head_hidden_actor 256 \
             --trunk_hidden_critic 1024,1024,1024 \
             --head_hidden_critic 512,512 \
-            --num_envs_per_task 8 \
+            --num_envs_per_task 16 \
             --ars_enable \
             --pick_place_base_scale 100.0 \
             --ars_update_freq 50000 \
