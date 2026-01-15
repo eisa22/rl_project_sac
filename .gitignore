@@ -1,3 +1,6 @@
+# Archive (legacy code)
+ARCHIVE/
+
 # Virtual Environment
 mt_rl_env/
 venv/
@@ -47,6 +50,8 @@ logs/
 outputs/
 runs/
 checkpoints/
+models_mtmh/
+mt10_checkpoints/
 
 # Environment variables
 .env
