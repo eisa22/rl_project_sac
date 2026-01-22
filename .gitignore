@@ -39,6 +39,7 @@ MANIFEST
 *.swo
 *~
 .DS_Store
+.claude/
 
 # Weights & Biases
 wandb/
