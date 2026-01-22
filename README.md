@@ -333,6 +333,25 @@ Each run directory contains:
 | Action Space | 4-dimensional continuous |
 | Observation Space | 39 (raw) + 3 (task one-hot) = 42 |
 
+### Asymmetric Actor-Critic Capacity (Larger Critic)
+
+We use asymmetric networks where the critic is larger than the actor. Concretely,
+the default multi-head configuration uses a smaller actor trunk and head
+(`--actor_hidden 256 256`, `--actor_head_hidden 128`) and a deeper, wider critic
+(`--critic_hidden 512 512 512`, `--critic_head_hidden 256`).
+
+Rationale:
+- In off-policy actor-critic methods, policy updates depend on accurate Q-value
+  estimates. Under multi-task training, the value function must model a broader
+  distribution of states and rewards, which can make the critic the bottleneck.
+- Empirically, giving the critic more capacity is a common stabilization
+  heuristic and can improve sample efficiency for multi-task settings.
+
+References:
+- Haarnoja et al., 2018. "Soft Actor-Critic: Off-Policy Maximum Entropy Deep RL."
+- Fujimoto et al., 2018. "Addressing Function Approximation Error in Actor-Critic Methods."
+- Yu et al., 2019. "Meta-World: A Benchmark and Evaluation for Multi-Task and Meta RL."
+
 ### Hyperparameters
 
 | Parameter | Value | Rationale |
@@ -343,9 +362,3 @@ Each run directory contains:
 | γ (discount) | 0.99 | Standard for episodic tasks |
 | τ (soft update) | 0.005 | Slow target updates for stability |
 | Entropy coef | auto | Automatic entropy tuning |
-
----
-
-## License
-
-This project is provided for educational purposes as part of a Robot Learning course.
