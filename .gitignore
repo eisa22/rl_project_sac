@@ -1,0 +1,16 @@
+﻿# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Large files
+*.pkl
+*replay_buffer*
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+wandb/
+*.log
