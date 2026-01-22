@@ -9,7 +9,7 @@
 #SBATCH --gres=gpu:a40:1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
-#SBATCH --time=72:00:00
+#SBATCH --time=100:00:00
 #SBATCH --output=/home/%u/metaworld_project/logs/mt3_mtmh_%j.log
 #SBATCH --error=/home/%u/metaworld_project/logs/mt3_mtmh_%j.err
 
@@ -76,29 +76,29 @@ apptainer exec --nv \
         
         # Run training with ARS & Periodic Resets
         python train_mt3_mtmh.py \
-            --run_name mt3_mtmh_gpu_optimized_params_v5_fast_seed${SEED} \
+            --run_name mt3_mtmh_longtime_checkpoints_500k_seed${SEED} \
             --total_steps 20000000 \
-            --seed ${SEED} \
-            --lr 3e-4 \
-            --alpha_lr 3e-4 \
-            --batch_size 2048 \
-            --tau 0.005 \
-            --learning_starts 30000 \
+            --seed 1 \
+            --lr 0.001 \
+            --alpha_lr 0.001 \
+            --batch_size 256 \
+            --tau 0.01 \
+            --learning_starts 10000 \
             --update_every 1 \
-            --checkpoint_every 1500000 \
+            --checkpoint_every 500000 \
             --trunk_hidden_actor 512,512 \
             --head_hidden_actor 256 \
-            --trunk_hidden_critic 1024,1024,1024 \
+            --trunk_hidden_critic 1024,1024 \
             --head_hidden_critic 512,512 \
-            --num_envs_per_task 16 \
+            --num_envs_per_task 4 \
             --ars_enable \
-            --pick_place_base_scale 100.0 \
+            --pick_place_base_scale 100 \
             --ars_update_freq 50000 \
-            --ars_bootstrap_steps 50000 \
-            --ars_min_scale 1.0 \
-            --ars_max_scale 250.0 \
+            --ars_bootstrap_steps 10000 \
+            --ars_min_scale 1 \
+            --ars_max_scale 200 \
             --reset_enable \
-            --reset_every 5000000
+            --reset_every 2000000
     "
 
 EXIT_CODE=$?

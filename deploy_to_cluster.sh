@@ -51,6 +51,10 @@ rsync -avz --progress \
     --exclude='models/' \
     --exclude='wandb/' \
     --exclude='.wandb_api_key' \
+    --exclude='.mt10_checkpoints_aggregate_success_05' \
+    --exclude='ARCHIVE/' \
+    --exclude='models/' \
+    --exclude='.claude/' \
     ./ ${CLUSTER_USER}@${CLUSTER_HOST}:~/metaworld_project/
 
 if [ $? -ne 0 ]; then
@@ -83,14 +87,14 @@ echo ""
 chmod +x docker/cluster/*.sh
 
 # Submit both MT3 and MT10 jobs
-# echo "Submitting MT3 training job with seed ${SEED}..."
-# MT3_JOB=\$(sbatch docker/cluster/train_mt3_mtmh.sh ${SEED} | awk '{print \$4}')
-# echo "MT3 Job ID: \$MT3_JOB"
+echo "Submitting MT3 training job with seed ${SEED}..."
+MT3_JOB=\$(sbatch docker/cluster/train_mt3_mtmh.sh ${SEED} | awk '{print \$4}')
+echo "MT3 Job ID: \$MT3_JOB"
 
 echo ""
-echo "Submitting MT10 training job with seed ${SEED}..."
-MT10_JOB=\$(sbatch docker/cluster/train_mt10_mtmh.sh ${SEED} | awk '{print \$4}')
-echo "MT10 Job ID: \$MT10_JOB"
+#echo "Submitting MT10 training job with seed ${SEED}..."
+#MT10_JOB=\$(sbatch docker/cluster/train_mt10_mtmh.sh ${SEED} | awk '{print \$4}')
+#echo "MT10 Job ID: \$MT10_JOB"
 
 # Wait a moment for jobs to appear in queue
 sleep 2
@@ -112,13 +116,13 @@ echo "=========================================="
 echo "✅ Deployment & Job Submission Complete!"
 echo "=========================================="
 echo ""
-echo "Submitted Jobs:"
-# echo "  - MT3:  Job \$MT3_JOB (3 tasks, 16 envs/task, batch 2048)"
-echo "  - MT10: Job \$MT10_JOB (10 tasks, 8 envs/task, batch 2048)"
+echo "Submitted Jobs:"  
+#echo "  - MT3:  Job \$MT3_JOB (3 tasks, 16 envs/task, batch 2048)"
+#echo "  - MT10: Job \$MT10_JOB (10 tasks, 8 envs/task, batch 2048)"
 echo ""
 echo "Next steps:"
 echo "  1. Monitor: ssh ${CLUSTER_USER}@${CLUSTER_HOST} 'squeue -u \$USER'"
-# echo "  2. MT3 logs:  ssh ${CLUSTER_HOST} 'tail -f ~/metaworld_project/logs/mt3_mtmh_*.log'"
-echo "  3. MT10 logs: ssh ${CLUSTER_HOST} 'tail -f ~/metaworld_project/logs/mt10_mtmh_*.log'"
+echo "  2. MT3 logs:  ssh ${CLUSTER_HOST} 'tail -f ~/metaworld_project/logs/mt3_mtmh_*.log'"
+# echo "  3. MT10 logs: ssh ${CLUSTER_HOST} 'tail -f ~/metaworld_project/logs/mt10_mtmh_*.log'"
 echo "  4. WandB: https://wandb.ai/Robot_learning_2025/Robot_learning_2025"
 echo ""

@@ -86,6 +86,8 @@ def main():
         "seed": args.seed,
         "total_steps": args.total_steps,
         "reward_scale": args.reward_scale,
+        "update_every": args.update_every,
+        "checkpoint_every": args.checkpoint_every,
         "trunk_hidden_actor": trunk_hidden_actor,
         "head_hidden_actor": head_hidden_actor,
         "trunk_hidden_critic": trunk_hidden_critic,

@@ -50,7 +50,7 @@ logs/
 outputs/
 runs/
 checkpoints/
-models_mtmh/
+models/
 mt10_checkpoints/
 
 # Environment variables
