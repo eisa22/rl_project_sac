@@ -1,0 +1,396 @@
+python evaluate_all_mtmh.py --episodes 100 --n_seeds 5 --output_csv final_results.csv
+Base directory: ./rl_project_sac/models_mtmh_selected
+Episodes per task: 100
+Random seeds: 5
+
+======================================================================
+Evaluating: MT10_params_v3_longtime_11.5M | Run ID: unedje7b
+Path: /home/johannes/Documents/01_Master_Robotik/4_Semester/VU_Robot_Learning/Course_Project/rl_project_sac/models_mtmh_selected/mt10_mtmh_params_v3_longtime_checkpoints_500k_seed1/checkpoint_step11500000.pt
+Type: MT10
+======================================================================
+✓ Loaded checkpoint
+
+  Task 1/10: reach-v3
+    Seed 1/5: Success=100.0%, Return=2866.1
+    Seed 2/5: Success=100.0%, Return=4831.7
+    Seed 3/5: Success=0.0%, Return=4043.3
+    Seed 4/5: Success=0.0%, Return=4379.9
+    Seed 5/5: Success=0.0%, Return=2535.3
+
+  Task 2/10: push-v3
+    Seed 1/5: Success=0.0%, Return=829.6
+    Seed 2/5: Success=0.0%, Return=1910.6
+    Seed 3/5: Success=0.0%, Return=2716.4
+    Seed 4/5: Success=0.0%, Return=2789.4
+    Seed 5/5: Success=0.0%, Return=2639.0
+
+  Task 3/10: pick-place-v3
+    Seed 1/5: Success=0.0%, Return=52.6
+    Seed 2/5: Success=0.0%, Return=38.7
+    Seed 3/5: Success=0.0%, Return=36.6
+    Seed 4/5: Success=0.0%, Return=609.8
+    Seed 5/5: Success=100.0%, Return=23.8
+
+  Task 4/10: door-open-v3
+    Seed 1/5: Success=0.0%, Return=1849.9
+    Seed 2/5: Success=0.0%, Return=1852.3
+    Seed 3/5: Success=0.0%, Return=1801.0
+    Seed 4/5: Success=0.0%, Return=1777.5
+    Seed 5/5: Success=0.0%, Return=1826.2
+
+  Task 5/10: drawer-close-v3
+    Seed 1/5: Success=100.0%, Return=4840.9
+    Seed 2/5: Success=100.0%, Return=4851.0
+    Seed 3/5: Success=100.0%, Return=4851.1
+    Seed 4/5: Success=100.0%, Return=4845.2
+    Seed 5/5: Success=100.0%, Return=4842.8
+
+  Task 6/10: button-press-topdown-v3
+    Seed 1/5: Success=0.0%, Return=1535.3
+    Seed 2/5: Success=0.0%, Return=1339.4
+    Seed 3/5: Success=0.0%, Return=1439.2
+    Seed 4/5: Success=0.0%, Return=1163.1
+    Seed 5/5: Success=100.0%, Return=1511.8
+
+  Task 7/10: peg-insert-side-v3
+    Seed 1/5: Success=0.0%, Return=960.4
+    Seed 2/5: Success=0.0%, Return=2196.5
+    Seed 3/5: Success=0.0%, Return=1073.6
+    Seed 4/5: Success=0.0%, Return=1924.2
+    Seed 5/5: Success=0.0%, Return=2412.3
+
+  Task 8/10: window-open-v3
+    Seed 1/5: Success=100.0%, Return=552.8
+    Seed 2/5: Success=100.0%, Return=3905.7
+    Seed 3/5: Success=100.0%, Return=3861.4
+    Seed 4/5: Success=100.0%, Return=3960.8
+    Seed 5/5: Success=100.0%, Return=3085.6
+
+  Task 9/10: drawer-open-v3
+    Seed 1/5: Success=100.0%, Return=3624.1
+    Seed 2/5: Success=100.0%, Return=3984.4
+    Seed 3/5: Success=100.0%, Return=3721.6
+    Seed 4/5: Success=100.0%, Return=3819.5
+    Seed 5/5: Success=100.0%, Return=3651.9
+
+  Task 10/10: door-close-v3
+    Seed 1/5: Success=100.0%, Return=4510.4
+    Seed 2/5: Success=100.0%, Return=4555.7
+    Seed 3/5: Success=100.0%, Return=4543.2
+    Seed 4/5: Success=100.0%, Return=4571.2
+    Seed 5/5: Success=100.0%, Return=4498.2
+
+  ──────────────────────────────────────────────────────────────────
+  AGGREGATE: Success=48.0%, Mean Return=2720.9
+  ──────────────────────────────────────────────────────────────────
+
+======================================================================
+Evaluating: MT10_gpu_optimized_v3_13M | Run ID: 5kwckqbc
+Path: /home/johannes/Documents/01_Master_Robotik/4_Semester/VU_Robot_Learning/Course_Project/rl_project_sac/models_mtmh_selected/mt10_mtmh_gpu_optimized_params_v3_longtime_checkpoints_seed1/checkpoint_step13000000.pt
+Type: MT10
+======================================================================
+✓ Loaded checkpoint
+
+  Task 1/10: reach-v3
+    Seed 1/5: Success=0.0%, Return=3193.5
+    Seed 2/5: Success=100.0%, Return=4866.7
+    Seed 3/5: Success=100.0%, Return=4826.6
+    Seed 4/5: Success=0.0%, Return=4585.4
+    Seed 5/5: Success=0.0%, Return=4004.4
+
+  Task 2/10: push-v3
+    Seed 1/5: Success=0.0%, Return=2428.7
+    Seed 2/5: Success=100.0%, Return=4331.3
+    Seed 3/5: Success=0.0%, Return=2904.4
+    Seed 4/5: Success=0.0%, Return=1669.9
+    Seed 5/5: Success=0.0%, Return=2006.9
+
+  Task 3/10: pick-place-v3
+    Seed 1/5: Success=0.0%, Return=1180.3
+    Seed 2/5: Success=0.0%, Return=23.9
+    Seed 3/5: Success=0.0%, Return=50.8
+    Seed 4/5: Success=0.0%, Return=78.9
+    Seed 5/5: Success=0.0%, Return=81.5
+
+  Task 4/10: door-open-v3
+    Seed 1/5: Success=100.0%, Return=3300.4
+    Seed 2/5: Success=100.0%, Return=2603.6
+    Seed 3/5: Success=100.0%, Return=3111.9
+    Seed 4/5: Success=100.0%, Return=2562.8
+    Seed 5/5: Success=100.0%, Return=3166.5
+
+  Task 5/10: drawer-close-v3
+    Seed 1/5: Success=100.0%, Return=4861.7
+    Seed 2/5: Success=100.0%, Return=4840.0
+    Seed 3/5: Success=100.0%, Return=4841.9
+    Seed 4/5: Success=100.0%, Return=4840.0
+    Seed 5/5: Success=100.0%, Return=4851.8
+
+  Task 6/10: button-press-topdown-v3
+    Seed 1/5: Success=100.0%, Return=2086.9
+    Seed 2/5: Success=100.0%, Return=1804.8
+    Seed 3/5: Success=100.0%, Return=1670.3
+    Seed 4/5: Success=100.0%, Return=2093.0
+    Seed 5/5: Success=100.0%, Return=2683.2
+
+  Task 7/10: peg-insert-side-v3
+    Seed 1/5: Success=0.0%, Return=1535.4
+    Seed 2/5: Success=0.0%, Return=2503.6
+    Seed 3/5: Success=0.0%, Return=1108.3
+    Seed 4/5: Success=0.0%, Return=947.9
+    Seed 5/5: Success=0.0%, Return=1609.0
+
+  Task 8/10: window-open-v3
+    Seed 1/5: Success=100.0%, Return=4167.3
+    Seed 2/5: Success=100.0%, Return=4164.5
+    Seed 3/5: Success=100.0%, Return=4158.4
+    Seed 4/5: Success=100.0%, Return=3935.3
+    Seed 5/5: Success=100.0%, Return=4214.8
+
+  Task 9/10: drawer-open-v3
+    Seed 1/5: Success=0.0%, Return=2719.3
+    Seed 2/5: Success=0.0%, Return=2714.6
+    Seed 3/5: Success=0.0%, Return=2705.4
+    Seed 4/5: Success=0.0%, Return=2692.1
+    Seed 5/5: Success=0.0%, Return=2667.1
+
+  Task 10/10: door-close-v3
+    Seed 1/5: Success=100.0%, Return=4534.6
+    Seed 2/5: Success=100.0%, Return=4551.8
+    Seed 3/5: Success=100.0%, Return=4542.2
+    Seed 4/5: Success=100.0%, Return=4560.4
+    Seed 5/5: Success=100.0%, Return=4518.5
+
+  ──────────────────────────────────────────────────────────────────
+  AGGREGATE: Success=56.0%, Mean Return=3002.1
+  ──────────────────────────────────────────────────────────────────
+
+======================================================================
+Evaluating: MT10_gpu_optimized_v5_fast_3M | Run ID: eya9txg5
+Path: /home/johannes/Documents/01_Master_Robotik/4_Semester/VU_Robot_Learning/Course_Project/rl_project_sac/models_mtmh_selected/mt10_mtmh_gpu_optimized_params_v5_fast_seed1/checkpoint_step3000000.pt
+Type: MT10
+======================================================================
+✓ Loaded checkpoint
+
+  Task 1/10: reach-v3
+    Seed 1/5: Success=100.0%, Return=4775.3
+    Seed 2/5: Success=0.0%, Return=3597.0
+    Seed 3/5: Success=0.0%, Return=3389.4
+    Seed 4/5: Success=0.0%, Return=2728.8
+    Seed 5/5: Success=100.0%, Return=4745.9
+
+  Task 2/10: push-v3
+    Seed 1/5: Success=100.0%, Return=4042.0
+    Seed 2/5: Success=0.0%, Return=3048.6
+    Seed 3/5: Success=100.0%, Return=2861.1
+    Seed 4/5: Success=0.0%, Return=330.6
+    Seed 5/5: Success=0.0%, Return=153.3
+
+  Task 3/10: pick-place-v3
+    Seed 1/5: Success=0.0%, Return=48.2
+    Seed 2/5: Success=0.0%, Return=40.8
+    Seed 3/5: Success=0.0%, Return=52.0
+    Seed 4/5: Success=0.0%, Return=44.9
+    Seed 5/5: Success=0.0%, Return=30.7
+
+  Task 4/10: door-open-v3
+    Seed 1/5: Success=100.0%, Return=3314.1
+    Seed 2/5: Success=0.0%, Return=1229.4
+    Seed 3/5: Success=100.0%, Return=2717.4
+    Seed 4/5: Success=100.0%, Return=3684.4
+    Seed 5/5: Success=100.0%, Return=2020.8
+
+  Task 5/10: drawer-close-v3
+    Seed 1/5: Success=100.0%, Return=4850.6
+    Seed 2/5: Success=100.0%, Return=4853.4
+    Seed 3/5: Success=100.0%, Return=4850.0
+    Seed 4/5: Success=100.0%, Return=4824.8
+    Seed 5/5: Success=100.0%, Return=4840.0
+
+  Task 6/10: button-press-topdown-v3
+    Seed 1/5: Success=100.0%, Return=3748.4
+    Seed 2/5: Success=0.0%, Return=890.1
+    Seed 3/5: Success=100.0%, Return=1493.8
+    Seed 4/5: Success=100.0%, Return=1769.6
+    Seed 5/5: Success=100.0%, Return=2949.8
+
+  Task 7/10: peg-insert-side-v3
+    Seed 1/5: Success=0.0%, Return=1331.9
+    Seed 2/5: Success=0.0%, Return=4.9
+    Seed 3/5: Success=0.0%, Return=1169.6
+    Seed 4/5: Success=0.0%, Return=1131.0
+    Seed 5/5: Success=100.0%, Return=1860.0
+
+  Task 8/10: window-open-v3
+    Seed 1/5: Success=100.0%, Return=1766.5
+    Seed 2/5: Success=100.0%, Return=4548.0
+    Seed 3/5: Success=100.0%, Return=3223.4
+    Seed 4/5: Success=0.0%, Return=295.5
+    Seed 5/5: Success=0.0%, Return=1612.5
+
+  Task 9/10: drawer-open-v3
+    Seed 1/5: Success=0.0%, Return=2315.3
+    Seed 2/5: Success=0.0%, Return=2250.9
+    Seed 3/5: Success=0.0%, Return=2454.8
+    Seed 4/5: Success=0.0%, Return=2226.6
+    Seed 5/5: Success=0.0%, Return=2518.7
+
+  Task 10/10: door-close-v3
+    Seed 1/5: Success=100.0%, Return=4525.5
+    Seed 2/5: Success=100.0%, Return=4556.6
+    Seed 3/5: Success=100.0%, Return=4541.5
+    Seed 4/5: Success=100.0%, Return=4566.5
+    Seed 5/5: Success=100.0%, Return=4497.4
+
+  ──────────────────────────────────────────────────────────────────
+  AGGREGATE: Success=52.0%, Mean Return=2586.4
+  ──────────────────────────────────────────────────────────────────
+
+======================================================================
+Evaluating: MT3_gpu_optimized_v5_fast_3M | Run ID: 5z44rn52
+Path: /home/johannes/Documents/01_Master_Robotik/4_Semester/VU_Robot_Learning/Course_Project/rl_project_sac/models_mtmh_selected/mt3_mtmh_gpu_optimized_params_v5_fast_seed1/checkpoint_step3000000.pt
+Type: MT3
+======================================================================
+✓ Loaded checkpoint
+
+  Task 1/3: reach-v3
+    Seed 1/5: Success=0.0%, Return=2345.9
+    Seed 2/5: Success=100.0%, Return=4766.1
+    Seed 3/5: Success=0.0%, Return=3688.0
+    Seed 4/5: Success=0.0%, Return=1647.9
+    Seed 5/5: Success=100.0%, Return=4800.5
+
+  Task 2/3: push-v3
+    Seed 1/5: Success=100.0%, Return=4576.7
+    Seed 2/5: Success=0.0%, Return=2093.7
+    Seed 3/5: Success=0.0%, Return=3634.5
+    Seed 4/5: Success=0.0%, Return=3227.5
+    Seed 5/5: Success=0.0%, Return=3468.3
+
+  Task 3/3: pick-place-v3
+    Seed 1/5: Success=0.0%, Return=58.3
+    Seed 2/5: Success=0.0%, Return=41.1
+    Seed 3/5: Success=0.0%, Return=53.6
+    Seed 4/5: Success=0.0%, Return=55.1
+    Seed 5/5: Success=0.0%, Return=19.6
+
+  ──────────────────────────────────────────────────────────────────
+  AGGREGATE: Success=20.0%, Mean Return=2298.4
+  ──────────────────────────────────────────────────────────────────
+
+======================================================================
+Evaluating: MT3_gpu_optimized_final | Run ID: mlcz7qv5
+Path: /home/johannes/Documents/01_Master_Robotik/4_Semester/VU_Robot_Learning/Course_Project/rl_project_sac/models_mtmh_selected/mt3_mtmh_gpu_optimized_seed1/final_model.pt
+Type: MT3
+======================================================================
+✓ Loaded checkpoint
+
+  Task 1/3: reach-v3
+    Seed 1/5: Success=0.0%, Return=1855.8
+    Seed 2/5: Success=100.0%, Return=3758.9
+    Seed 3/5: Success=0.0%, Return=2325.3
+    Seed 4/5: Success=0.0%, Return=2448.8
+    Seed 5/5: Success=0.0%, Return=2178.0
+
+  Task 2/3: push-v3
+    Seed 1/5: Success=0.0%, Return=1975.9
+    Seed 2/5: Success=0.0%, Return=202.7
+    Seed 3/5: Success=0.0%, Return=2063.7
+    Seed 4/5: Success=0.0%, Return=1911.4
+    Seed 5/5: Success=0.0%, Return=970.4
+
+  Task 3/3: pick-place-v3
+    Seed 1/5: Success=0.0%, Return=260.1
+    Seed 2/5: Success=0.0%, Return=50.1
+    Seed 3/5: Success=0.0%, Return=56.8
+    Seed 4/5: Success=0.0%, Return=468.7
+    Seed 5/5: Success=0.0%, Return=65.7
+
+  ──────────────────────────────────────────────────────────────────
+  AGGREGATE: Success=6.7%, Mean Return=1372.8
+  ──────────────────────────────────────────────────────────────────
+
+======================================================================
+Evaluating: MT3_longtime_1M | Run ID: 2q61drak
+Path: /home/johannes/Documents/01_Master_Robotik/4_Semester/VU_Robot_Learning/Course_Project/rl_project_sac/models_mtmh_selected/mt3_mtmh_longtime_checkpoints_500k_seed1/checkpoint_step1000000.pt
+Type: MT3
+======================================================================
+✓ Loaded checkpoint
+
+  Task 1/3: reach-v3
+    Seed 1/5: Success=0.0%, Return=2235.0
+    Seed 2/5: Success=0.0%, Return=1847.8
+    Seed 3/5: Success=100.0%, Return=4718.0
+    Seed 4/5: Success=0.0%, Return=405.3
+    Seed 5/5: Success=0.0%, Return=543.6
+
+  Task 2/3: push-v3
+    Seed 1/5: Success=0.0%, Return=72.6
+    Seed 2/5: Success=0.0%, Return=8.5
+    Seed 3/5: Success=100.0%, Return=4062.0
+    Seed 4/5: Success=100.0%, Return=4583.9
+    Seed 5/5: Success=0.0%, Return=2533.2
+
+  Task 3/3: pick-place-v3
+    Seed 1/5: Success=0.0%, Return=40.0
+    Seed 2/5: Success=0.0%, Return=46.2
+    Seed 3/5: Success=0.0%, Return=7.8
+    Seed 4/5: Success=0.0%, Return=8.6
+    Seed 5/5: Success=0.0%, Return=66.5
+
+  ──────────────────────────────────────────────────────────────────
+  AGGREGATE: Success=20.0%, Mean Return=1411.9
+  ──────────────────────────────────────────────────────────────────
+
+======================================================================
+Evaluating: MT3_params_v3_longtime_3M | Run ID: sz5q6nfg
+Path: /home/johannes/Documents/01_Master_Robotik/4_Semester/VU_Robot_Learning/Course_Project/rl_project_sac/models_mtmh_selected/mt3_mtmh_params_v3_longtime_checkpoints_500k_seed1/checkpoint_step3000000.pt
+Type: MT3
+======================================================================
+✓ Loaded checkpoint
+
+  Task 1/3: reach-v3
+    Seed 1/5: Success=100.0%, Return=4092.7
+    Seed 2/5: Success=100.0%, Return=3741.8
+    Seed 3/5: Success=0.0%, Return=3019.2
+    Seed 4/5: Success=0.0%, Return=3264.8
+    Seed 5/5: Success=100.0%, Return=4793.2
+
+  Task 2/3: push-v3
+    Seed 1/5: Success=100.0%, Return=3396.7
+    Seed 2/5: Success=0.0%, Return=1091.2
+    Seed 3/5: Success=100.0%, Return=3624.0
+    Seed 4/5: Success=0.0%, Return=1047.2
+    Seed 5/5: Success=0.0%, Return=420.4
+
+  Task 3/3: pick-place-v3
+    Seed 1/5: Success=0.0%, Return=116.5
+    Seed 2/5: Success=0.0%, Return=9.1
+    Seed 3/5: Success=0.0%, Return=33.7
+    Seed 4/5: Success=0.0%, Return=71.6
+    Seed 5/5: Success=100.0%, Return=336.3
+
+  ──────────────────────────────────────────────────────────────────
+  AGGREGATE: Success=40.0%, Mean Return=1937.2
+  ──────────────────────────────────────────────────────────────────
+
+====================================================================================================
+EVALUATION SUMMARY - ALL CHECKPOINTS
+====================================================================================================
+Model                                         Type   Avg Success   Avg Return   Tasks 
+----------------------------------------------------------------------------------------------------
+MT10_gpu_optimized_v3_13M                     MT10    56.0% ± 45.4%   3002.1 ± 1390.0   10    
+MT10_gpu_optimized_v5_fast_3M                 MT10    52.0% ± 36.0%   2586.4 ± 1404.8   10    
+MT10_params_v3_longtime_11.5M                 MT10    48.0% ± 44.0%   2720.9 ± 1431.9   10    
+MT3_params_v3_longtime_3M                     MT3     40.0% ± 16.3%   1937.2 ± 1497.9   3     
+MT3_gpu_optimized_v5_fast_3M                  MT3     20.0% ± 16.3%   2298.4 ± 1593.2   3     
+MT3_longtime_1M                               MT3     20.0% ± 16.3%   1411.9 ± 982.3   3     
+MT3_gpu_optimized_final                       MT3      6.7% ± 9.4%   1372.8 ± 953.2   3     
+====================================================================================================
+
+BEST MODELS:
+  MT3:  MT3_params_v3_longtime_3M                     Success=40.0%
+  MT10: MT10_gpu_optimized_v3_13M                     Success=56.0%
+
+✓ Results exported to: final_results.csv
+
