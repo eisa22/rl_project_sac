@@ -1,201 +1,196 @@
-# Meta-World SAC (Multi-Task + Single-Task)
+# Git Branches Overview
 
-Vollständige Implementierung des **Soft Actor-Critic (SAC)** Algorithmus mit **CUDA-Support**, **Weights & Biases Logging** und **TU Wien dataLAB Cluster Deployment**.
+This repository documents the transition from single-task to multi-task reinforcement learning (MTRL) using the Meta-World benchmark and the Soft Actor-Critic (SAC) algorithm, as described in the paper **"From Single-Task to Multi-Task Reinforcement Learning in Meta-World Using Soft Actor-Critic"**.
 
-Unterstützt **Single-Task (ML1)** und **Multi-Task (MT10)** Reinforcement Learning für Meta-World Umgebungen.
+## Branch Overview
 
-## 🚀 Features
-
-- ✅ Custom SAC Implementation (McLean et al. 2025 spec)
-- ✅ Multi-Task MT10 Training (10 Tasks parallel)
-- ✅ Per-Task Replay Buffers mit Equal Sampling
-- ✅ Large Critic Networks (1024³) für Multi-Task Scaling
-- ✅ Weights & Biases Integration (Online + Offline Mode)
-- ✅ **Cluster Deployment Ready** (SLURM/Singularity)
-- ✅ Docker/Singularity Container (~15GB)
-- ✅ GPU-Optimized für NVIDIA A40 (48GB VRAM)
+The branches are categorized by their functionality:
 
 ---
 
-## 📁 Repository-Struktur
+## 🎯 Main Branches
 
+### `main`
+**Main branch with the final MTMH-SAC implementation**
+
+Contains the complete Multi-Task Multi-Head SAC (MTMH-SAC) implementation with all features:
+- Shared trunk encoder with task-specific actor/critic heads
+- Adaptive Reward Scaling (ARS)
+- Periodic Resets (PR)
+- GPU optimizations with mixed precision training
+- Training for MT3 (3 tasks) and MT10 (10 tasks)
+
+**Main files:**
+- `mtmh_sac.py` - MTMH-SAC agent implementation
+- `train_mt3_mtmh.py` - MT3 training script
+- `train_mt10_mtmh.py` - MT10 training script
+
+---
+
+### `evaluation_visualization`
+**Evaluation and visualization of trained models**
+
+This branch contains tools for evaluation and visual representation of trained MTMH-SAC models:
+- Evaluation scripts for MT3 and MT10
+- Visualization of robot manipulation tasks
+- Success rate metrics and performance analysis
+
+---
+
+## 📚 Feature Branches (Methodological Development)
+
+### `feature/mt1`
+**Single-Task SAC Baseline (MT1)**
+
+Implementation of single-task Soft Actor-Critic as the starting point for the transition to multi-task learning. Corresponds to Section III-A of the paper.
+
+**Concept:** 
+- Training a single task in isolation
+- Basic SAC implementation without multi-task extensions
+- Serves as baseline for performance comparisons
+
+**Structure:**
 ```
-rl_project_sac/
-├── train_metaworld.py          # MT10 Training Script
-├── sac_agent.py                # Custom SAC Implementation
-├── play_metaworld.py           # Evaluation Script
-├── requirements.txt            # Python Dependencies
-├── Dockerfile                  # Container Build
-├── docker/
-│   └── cluster/               # ⭐ Cluster Deployment
-│       ├── .env.cluster       # Cluster Configuration
-│       ├── run_singularity.sh # Container Runner
-│       ├── test_simple.sh     # Test Job
-│       ├── train_mt10_test.sh # Short Training
-│       ├── train_mt10_full.sh # Full Training
-│       ├── CLUSTER_DEPLOYMENT.md  # Full Documentation
-│       └── README.md
-├── DEPLOYMENT_CHECKLIST.md    # Step-by-Step Deployment Guide
-└── README.md                  # This file
+mt1/
+├── train.py        # Single-Task Training
+└── sac_agent.py    # Basic SAC implementation
 ```
 
 ---
 
-## 🚀 Quick Start (Lokal)
+### `feature/mt3`
+**Multi-Task SAC for 3 Tasks (Reach, Push, Pick-Place)**
 
-### 1. Python-Umgebung erstellen
-```bash
-conda create -n metaworld_rl python=3.10
-conda activate metaworld_rl
-```
+First extension to multi-task learning with 3 related Meta-World tasks. Implements the basic MTMH-SAC architecture as described in Section III-B of the paper.
 
-### 2. Benötigte Libraries installieren
-```bash
-pip install metaworld==2.* gymnasium wandb
-```
+**Concept:**
+- Multi-head architecture with task-specific heads
+- Curriculum learning approach
+- Uses Stable Baselines 3 (SB3) as foundation
 
-### 3. PyTorch mit CUDA installieren
-
-Wählen Sie die korrekte Version für Ihre GPU unter: https://pytorch.org/get-started/locally/
-
-Beispiel für CUDA 12.1:
-```bash
-pip install torch torchvision torchaudio --index-url [https://download.pytorch.org/whl/cu121](https://download.pytorch.org/whl/cu121)
-```
-
-
-### 🧠 Training starten (Lokal)
-
-**Test Command:**
-```bash
-python train_metaworld.py --run_name local_test_tiny --total_steps 10000
-```
-
-Das Training wird über `train_metaworld.py` gesteuert:
+**Contains:**
+- `train_mt3_curriculum_sb3.py` - Training with curriculum learning
+- `sac_agent_sb3/` - SAC agent based on SB3
+- `evaluate.py` - Evaluation script
 
 ---
 
-#### MT10 Multi-Task Training
+### `feature/mt10-mt3_ars_pr`
+**MT10/MT3 with Adaptive Reward Scaling and Periodic Resets**
 
-Trainiert SAC auf **10 Tasks gleichzeitig**:
+Extended implementation with advanced techniques from Section IV of the paper:
 
-```bash
-python train_metaworld.py \
-    --run_name my_mt10_run \
-    --total_steps 2000000 \
-    --seed 42
-```
+**Adaptive Reward Scaling (ARS):**
+- Equalizes reward magnitudes across different tasks
+- Formula: `c_i = max(r̄₁, ..., r̄ₙ) / r̄ᵢ`
+- Updates every 50k steps based on buffer statistics
 
-**Verfügbare MT10 Tasks:**
-- reach-v2, push-v2, pick-place-v2, door-open-v2, drawer-open-v2
-- drawer-close-v2, button-press-topdown-v2, peg-insert-side-v2
-- window-open-v2, window-close-v2
-
----
-
-## 🖥️ Cluster Deployment (TU Wien dataLAB)
-
-**Vollständige Anleitung:** [`docker/cluster/CLUSTER_DEPLOYMENT.md`](docker/cluster/CLUSTER_DEPLOYMENT.md)  
-**Deployment Checklist:** [`DEPLOYMENT_CHECKLIST.md`](DEPLOYMENT_CHECKLIST.md)
-
-### Quick Start (Cluster)
-
-```bash
-# 1. Container bauen & konvertieren
-./build_docker.sh
-./convert_to_singularity.sh
-
-# 2. Upload
-scp sac_metaworld.sif datalab:/share/e11704784/containers/
-rsync -avP . datalab:/home/e11704784/metaworld_project/source/rl_project_sac/
-
-# 3. Setup
-ssh datalab
-mkdir -p /home/e11704784/metaworld_project/{logs,models,wandb_cache}
-
-# 4. Test
-cd /home/e11704784/metaworld_project/source/rl_project_sac/docker/cluster
-sbatch test_simple.sh
-
-# 5. Training
-sbatch train_mt10_full.sh  # 2M steps, ~10h on A40
-```
-
-**Features:**
-- ✅ SLURM Integration
-- ✅ Singularity/Apptainer Container
-- ✅ GPU-optimiert für A40 (48GB VRAM)
-- ✅ W&B Offline Mode
-- ✅ Automatic Checkpointing
-- ✅ Based on Isaac Lab Lessons Learned
+**Periodic Resets (PR):**
+- Resets actor, critic, target networks, and alpha
+- Replay buffer is retained for sample efficiency
+- Prevents "loss of plasticity" during long training runs
 
 ---
 
-### 📊 Weights & Biases Setup
+## � Development Branches
 
-```bash
-# Lokal
-wandb login
+### `mtmhsac-markus`
+**Multi-Task Multi-Head SAC Development (Markus)**
 
-# Cluster (offline mode)
-# → Kein Login nötig!
-# Nach Training: wandb sync
-```
-
-## 📁 Projektdateien – Übersicht
-
-### `train_metaworld.py`
-Das Haupt-Trainingsskript.  
-Es ermöglicht:
-
-- **Single-Task Training (ML1)** z. B. `reach-v3`, `push-v3`
-- **Multi-Task Training (MT10)** mit 10 Tasks gleichzeitig
-- automatisches Logging in **Weights & Biases**
-- Ausführen von SAC-Updates und regelmäßiger Evaluation
-
-Dieses Skript wird genutzt, um neue Modelle zu trainieren.
+Development branch for the MTMH-SAC architecture:
+- SB3-based MT-SAC implementation
+- Cluster setup for training on GPU nodes
+- Task-specific configurations
 
 ---
 
-### `sac_agent.py`
-Implementiert den eigentlichen **Soft Actor-Critic (SAC)** Algorithmus:
+### `mt3_markus_final`
+**Finalized MT3 Implementation**
 
-- Actor-Netzwerk (Policy)
-- zwei große Critic-Netzwerke (Q-Funktionen)
-- Target Networks
-- Replay Buffer
-- Entropy-Tuning
-- CUDA-Support
-- Logging der Trainingsmetriken
-
-Dieses File enthält die lernenden Komponenten des Agents.
+Final version of the MT3 implementation with:
+- `metaworld_mt_env.py` - Multi-task environment wrapper
+- `make_vec_envs.py` - Vectorized environment creation
+- `evaluate_mt3.py` - Final evaluation scripts
 
 ---
 
-### `play_metaworld.py` 
-Skript zur **Evaluation eines trainierten Modells**:
+### `dev-johannes`
+**Development Branch (Johannes)**
 
-- lädt ein gespeichertes SB3-Modell (SAC/TD3/DDPG)
-- führt mehrere Episoden im ausgewählten Meta-World Task aus
-- zeigt das Verhalten im **Rendering-Fenster**
-- misst Erfolgsrate, Rewards und Steps
+Experimental developments and tests.
 
-Perfekt, um schnell zu testen, wie gut ein Modell gelernt hat.
+---
 
+### `dev-markus`
+**Development Branch (Markus)**
 
-### 2. Konfiguration
+Experimental implementations and architecture tests.
 
-    Projektname: Robot_learning_2025
+---
 
-    Run-Name: Wird über das Argument --run_name gesetzt. Bitte nutzen Sie Ihren eigenen, eindeutigen Run-Namen!
+### `dev-thomas`
+**Development Branch (Thomas)**
 
-        Beispiele: --run_name samuel_bigcritic_test, --run_name lukas_actor_small
-        beispiel mt10: python train_metaworld.py --run_name samuel_mt10_run
+Development and experiments.
 
-### 3. Geloggte Metriken
-Kategorie	Metriken
-Trainingsmetriken	q1_loss, q2_loss, actor_loss, alpha
-Single-Task Eval	eval_avg_return, eval_success_rate
-Multi-Task Eval	task_name_avg_return, task_name_success_rate (für jeden Task separat) und mean_success_all_tasks
+---
 
-Gerne anpassen :)
+### `dev-thomas-mtrl-cluster`
+**MTRL Cluster Deployment (Thomas)**
+
+Cluster-specific configurations and SLURM job scripts for training on HPC clusters.
+
+---
+
+## 🧪 Experimental Branches
+
+### `MT_SAC_task_embedding`
+**Task Embeddings Experiment**
+
+Implementation of learned task representations as an alternative to one-hot task conditioning (Section III-C of the paper):
+
+**Concept:**
+- Replacing explicit task IDs with learned embeddings
+- Dense representations can capture task similarities
+- Potential for better transfer between related tasks
+
+---
+
+### `in_dev_sb3_*`
+**Stable Baselines 3 Development**
+
+Experimental implementations with the Stable Baselines 3 framework.
+
+---
+
+## 📊 Methodological Overview (Paper Reference)
+
+The branches reflect the progressive development described in the paper:
+
+| Section | Branch(es) | Description |
+|---------|-----------|-------------|
+| III-A: Single-Task SAC | `feature/mt1` | Baseline SAC training |
+| III-B: Task Conditioning | `feature/mt3` | One-hot task IDs |
+| III-C: Learned Embeddings | `MT_SAC_task_embedding` | Dense task representations |
+| III-D: Multi-Head Architecture | `mtmhsac-markus`, `main` | Task-specific heads |
+| IV-A: Adaptive Reward Scaling | `feature/mt10-mt3_ars_pr` | ARS implementation |
+| IV-B: Periodic Resets | `feature/mt10-mt3_ars_pr`, `main` | Network resets |
+| V: GPU Optimizations | `main` | Mixed precision, batch inference |
+
+---
+
+## 🚀 Recommended Workflow
+
+1. **Understand baseline:** `feature/mt1` for single-task SAC
+2. **Multi-task fundamentals:** `feature/mt3` for first MT experiments
+3. **Advanced techniques:** `feature/mt10-mt3_ars_pr` for ARS/PR
+4. **Final implementation:** `main` for complete MTMH-SAC
+
+---
+
+## 📖 References
+
+- Paper: "From Single-Task to Multi-Task Reinforcement Learning in Meta-World Using Soft Actor-Critic"
+- Authors: Einspieler Samuel, Kestler Johannes, Loibelsberger Thomas, Müller Markus
+- Institution: Institute of Computer Technology, TU Wien
+- Code: https://github.com/eisa22/rl_project_sac
