@@ -92,76 +92,7 @@ Extended implementation with advanced techniques from Section IV of the paper:
 
 ---
 
-## � Development Branches
 
-### `mtmhsac-markus`
-**Multi-Task Multi-Head SAC Development (Markus)**
-
-Development branch for the MTMH-SAC architecture:
-- SB3-based MT-SAC implementation
-- Cluster setup for training on GPU nodes
-- Task-specific configurations
-
----
-
-### `mt3_markus_final`
-**Finalized MT3 Implementation**
-
-Final version of the MT3 implementation with:
-- `metaworld_mt_env.py` - Multi-task environment wrapper
-- `make_vec_envs.py` - Vectorized environment creation
-- `evaluate_mt3.py` - Final evaluation scripts
-
----
-
-### `dev-johannes`
-**Development Branch (Johannes)**
-
-Experimental developments and tests.
-
----
-
-### `dev-markus`
-**Development Branch (Markus)**
-
-Experimental implementations and architecture tests.
-
----
-
-### `dev-thomas`
-**Development Branch (Thomas)**
-
-Development and experiments.
-
----
-
-### `dev-thomas-mtrl-cluster`
-**MTRL Cluster Deployment (Thomas)**
-
-Cluster-specific configurations and SLURM job scripts for training on HPC clusters.
-
----
-
-## 🧪 Experimental Branches
-
-### `MT_SAC_task_embedding`
-**Task Embeddings Experiment**
-
-Implementation of learned task representations as an alternative to one-hot task conditioning (Section III-C of the paper):
-
-**Concept:**
-- Replacing explicit task IDs with learned embeddings
-- Dense representations can capture task similarities
-- Potential for better transfer between related tasks
-
----
-
-### `in_dev_sb3_*`
-**Stable Baselines 3 Development**
-
-Experimental implementations with the Stable Baselines 3 framework.
-
----
 
 ## 📊 Methodological Overview (Paper Reference)
 
@@ -171,26 +102,6 @@ The branches reflect the progressive development described in the paper:
 |---------|-----------|-------------|
 | III-A: Single-Task SAC | `feature/mt1` | Baseline SAC training |
 | III-B: Task Conditioning | `feature/mt3` | One-hot task IDs |
-| III-C: Learned Embeddings | `MT_SAC_task_embedding` | Dense task representations |
-| III-D: Multi-Head Architecture | `mtmhsac-markus`, `main` | Task-specific heads |
 | IV-A: Adaptive Reward Scaling | `feature/mt10-mt3_ars_pr` | ARS implementation |
 | IV-B: Periodic Resets | `feature/mt10-mt3_ars_pr`, `main` | Network resets |
 | V: GPU Optimizations | `main` | Mixed precision, batch inference |
-
----
-
-## 🚀 Recommended Workflow
-
-1. **Understand baseline:** `feature/mt1` for single-task SAC
-2. **Multi-task fundamentals:** `feature/mt3` for first MT experiments
-3. **Advanced techniques:** `feature/mt10-mt3_ars_pr` for ARS/PR
-4. **Final implementation:** `main` for complete MTMH-SAC
-
----
-
-## 📖 References
-
-- Paper: "From Single-Task to Multi-Task Reinforcement Learning in Meta-World Using Soft Actor-Critic"
-- Authors: Einspieler Samuel, Kestler Johannes, Loibelsberger Thomas, Müller Markus
-- Institution: Institute of Computer Technology, TU Wien
-- Code: https://github.com/eisa22/rl_project_sac
